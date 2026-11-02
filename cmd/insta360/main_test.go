@@ -214,3 +214,61 @@ func TestSetWarnsOrReleasesMode(t *testing.T) {
 		t.Errorf("get --all lacks mode: %q", out)
 	}
 }
+
+func TestFeatureGesturesSpeedFlicker(t *testing.T) {
+	shared := fake.New()
+	camera.Register(camera.Factory{Name: "fakefeat", Explicit: true, New: func() camera.Backend { return shared }})
+	runIt := func(args ...string) (int, string, string) {
+		var o, e bytes.Buffer
+		code := run(append([]string{"--backend", "fakefeat"}, args...), &o, &e, false)
+		return code, o.String(), e.String()
+	}
+	if code, out, _ := runIt("feature"); code != 0 || !strings.Contains(out, `"name":"smart-framing","on":true`) || !strings.Contains(out, `"mask":544`) {
+		t.Errorf("list: %d %q", code, out)
+	}
+	if code, out, _ := runIt("feature", "hdr", "on"); code != 0 || shared.FeatureMask != 0x0224 || !strings.Contains(out, `"mask_after":548`) {
+		t.Errorf("hdr on: %d %q %#x", code, out, shared.FeatureMask)
+	}
+	if code, _, _ := runIt("feature", "hdr", "maybe"); code != exitUsage {
+		t.Errorf("maybe: %d", code)
+	}
+	if code, _, _ := runIt("feature", "bogus", "on"); code != exitUsage {
+		t.Errorf("bogus: %d", code)
+	}
+	if code, _, _ := runIt("--dry-run", "feature", "vertical-lock", "on"); code != 0 || shared.FeatureMask != 0x0224 {
+		t.Errorf("dry-run wrote: %#x", shared.FeatureMask)
+	}
+	if code, _, _ := runIt("gestures", "--enable", "on", "--tracking", "on", "--zoom", "on"); code != 0 || shared.GestureMask != 0x06 || shared.FeatureMask != 0x0234 {
+		t.Errorf("gestures: %#x %#x", shared.GestureMask, shared.FeatureMask)
+	}
+	if code, out, _ := runIt("gestures"); code != 0 || !strings.Contains(out, `"zoom":true`) {
+		t.Errorf("gestures read: %d %q", code, out)
+	}
+	if code, _, _ := runIt("gestures", "--zoom", "x"); code != exitUsage {
+		t.Errorf("gestures bad: %d", code)
+	}
+	if code, _, _ := runIt("tracking-speed", "slow"); code != 0 || shared.Speed != camera.SpeedSlow {
+		t.Errorf("speed: %v", shared.Speed)
+	}
+	if code, _, _ := runIt("tracking-speed", "warp"); code != exitUsage {
+		t.Errorf("warp: %d", code)
+	}
+	if code, _, _ := runIt("flicker", "60"); code != 0 || shared.PowerLine != 60 {
+		t.Errorf("flicker: %v", shared.PowerLine)
+	}
+	if code, _, _ := runIt("flicker", "55"); code != exitUsage {
+		t.Errorf("flicker 55: %d", code)
+	}
+	code, out, _ := runIt("get", "--all")
+	for _, s := range []string{`"features"`, `"feature_mask":"0x0234"`, `"gestures"`, `"tracking_speed":"slow"`, `"flicker_hz":60`} {
+		if code != 0 || !strings.Contains(out, s) {
+			t.Errorf("get --all lacks %s: %q", s, out)
+		}
+	}
+	if code, _, e := runIt("--keep-stream", "get"); code != exitUnavailable {
+		t.Errorf("keep-stream on fake: %d %q", code, e)
+	}
+	if code, _, _ := runIt("--keep-stream", "--resolution", "bad", "get"); code != exitUsage {
+		t.Errorf("bad resolution: %d", code)
+	}
+}

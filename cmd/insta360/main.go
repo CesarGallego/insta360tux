@@ -27,6 +27,11 @@ type globals struct {
 	dryRun  bool
 	timeout time.Duration
 	clamp   bool
+
+	keepStream bool
+	resolution string
+	fps        int
+	hold       time.Duration
 }
 
 // boolFlag records whether it was set explicitly.
@@ -47,6 +52,10 @@ func (g *globals) register(fs *flag.FlagSet) {
 	fs.BoolVar(&g.dryRun, "dry-run", g.dryRun, "")
 	fs.DurationVar(&g.timeout, "timeout", g.timeout, "")
 	fs.BoolVar(&g.clamp, "clamp", g.clamp, "")
+	fs.BoolVar(&g.keepStream, "keep-stream", g.keepStream, "")
+	fs.StringVar(&g.resolution, "resolution", g.resolution, "")
+	fs.IntVar(&g.fps, "fps", g.fps, "")
+	fs.DurationVar(&g.hold, "stream-hold", g.hold, "")
 }
 
 func (g *globals) options() camera.Options {
@@ -73,7 +82,7 @@ func newFS(name string, a *app) *flag.FlagSet {
 }
 
 // globalValueFlags take a separate value argument ("--device X").
-var globalValueFlags = map[string]bool{"device": true, "backend": true, "timeout": true}
+var globalValueFlags = map[string]bool{"device": true, "backend": true, "timeout": true, "resolution": true, "fps": true, "stream-hold": true}
 
 // splitCommand finds the command word: the first argument that is not a flag
 // (nor the value of a global value flag). It returns the index, or -1.
@@ -121,6 +130,7 @@ func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
 func run(args []string, stdout, stderr io.Writer, tty bool) int {
 	a := &app{out: stdout, err: stderr, isTTY: tty}
 	a.g.timeout = 2 * time.Second
+	a.g.hold = 3 * time.Second
 
 	ci := splitCommand(args)
 	if ci < 0 {
@@ -222,6 +232,7 @@ type cmdFlags struct {
 	all, zoomReset    bool
 	autofocus         bool
 	normal            bool
+	onoff             map[string]*string // gestures: --enable --tracking --zoom --whiteboard
 	set               map[string]bool
 	args              []string
 }
@@ -250,6 +261,11 @@ func declareCmdFlags(fs *flag.FlagSet, name string) *cmdFlags {
 		fs.BoolVar(&f.zoomReset, "zoom", false, "")
 	case "zoom":
 		fs.IntVar(&f.delta, "delta", 0, "")
+	case "gestures":
+		f.onoff = map[string]*string{}
+		for _, n := range []string{"enable", "tracking", "zoom", "whiteboard"} {
+			f.onoff[n] = fs.String(n, "", "")
+		}
 	}
 	return f
 }
@@ -317,6 +333,17 @@ func (a *app) dispatch(name string, f *cmdFlags) int {
 		return a.failErr(err)
 	}
 	defer cam.Close()
+	if a.g.keepStream {
+		release, code := a.startStream(cam)
+		if code != exitOK {
+			return code
+		}
+		defer release()
+	}
+	return a.exec(cam, name, f)
+}
+
+func (a *app) exec(cam *camera.Camera, name string, f *cmdFlags) int {
 	switch name {
 	case "info":
 		return a.cmdInfo(cam)
@@ -332,6 +359,14 @@ func (a *app) dispatch(name string, f *cmdFlags) int {
 		return a.cmdZoom(cam, f)
 	case "mode":
 		return a.cmdMode(cam, f)
+	case "feature":
+		return a.cmdFeature(cam, f)
+	case "gestures":
+		return a.cmdGestures(cam, f)
+	case "tracking-speed":
+		return a.cmdTrackingSpeed(cam, f)
+	case "flicker":
+		return a.cmdFlicker(cam, f)
 	}
 	return a.fail(exitInternal, "internal", fmt.Errorf("unhandled command %s", name))
 }
@@ -401,6 +436,35 @@ func (a *app) cmdGet(cam *camera.Camera, f *cmdFlags) int {
 			human += fmt.Sprintf("\nmode=%s", v)
 		} else if !errors.Is(err, camera.ErrUnsupported) {
 			warns = append(warns, "mode: "+err.Error())
+		}
+		if fs, m, err := cam.GetFeatures(); err == nil {
+			fm := map[string]bool{}
+			for _, x := range fs {
+				fm[string(x.Name)] = x.On
+				human += fmt.Sprintf("\n%s=%s", x.Name, onOff(x.On))
+			}
+			out["features"], out["feature_mask"] = fm, fmt.Sprintf("0x%04x", m)
+			human += fmt.Sprintf("\nfeature_mask=0x%04x", m)
+		} else if !errors.Is(err, camera.ErrUnsupported) {
+			warns = append(warns, "features: "+err.Error())
+		}
+		if g, err := cam.GetGestures(); err == nil {
+			out["gestures"] = g
+			human += fmt.Sprintf("\ngesture_mask=0x%02x (tracking=%s zoom=%s whiteboard=%s)", g.Mask, onOff(g.Tracking), onOff(g.Zoom), onOff(g.Whiteboard))
+		} else if !errors.Is(err, camera.ErrUnsupported) {
+			warns = append(warns, "gestures: "+err.Error())
+		}
+		if v, err := cam.GetTrackingSpeed(); err == nil {
+			out["tracking_speed"] = v
+			human += "\ntracking_speed=" + string(v)
+		} else if !errors.Is(err, camera.ErrUnsupported) {
+			warns = append(warns, "tracking-speed: "+err.Error())
+		}
+		if v, err := cam.GetPowerLine(); err == nil {
+			out["flicker_hz"] = int(v)
+			human += fmt.Sprintf("\nflicker_hz=%d", v)
+		} else if !errors.Is(err, camera.ErrUnsupported) {
+			warns = append(warns, "flicker: "+err.Error())
 		}
 		if len(warns) > 0 {
 			out["warnings"] = warns
@@ -608,4 +672,178 @@ func (a *app) cmdZoom(cam *camera.Camera, f *cmdFlags) int {
 	}
 	a.emit(map[string]any{"zoom": r}, fmtInt("zoom", r))
 	return exitOK
+}
+
+// ---- features, gestures, tracking speed, anti-flicker, stream ----
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
+
+func parseOnOff(s string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "on", "true", "1", "yes":
+		return true, nil
+	case "off", "false", "0", "no":
+		return false, nil
+	}
+	return false, fmt.Errorf("%q is not on|off", s)
+}
+
+func (a *app) cmdFeature(cam *camera.Camera, f *cmdFlags) int {
+	switch {
+	case len(f.args) > 2:
+		return a.fail(exitUsage, "usage", errors.New("feature takes NAME [on|off]"))
+	case len(f.args) == 0:
+		fs, m, err := cam.GetFeatures()
+		if err != nil {
+			return a.failErr(err)
+		}
+		var sb strings.Builder
+		for _, x := range fs {
+			fmt.Fprintf(&sb, "%-18s %s\n", x.Name, onOff(x.On))
+		}
+		fmt.Fprintf(&sb, "mask=0x%04x", m)
+		a.emit(map[string]any{"features": fs, "mask": m}, sb.String())
+		return exitOK
+	}
+	fi, err := camera.ParseFeature(f.args[0])
+	if err != nil {
+		return a.fail(exitUsage, "usage", err)
+	}
+	if len(f.args) == 1 {
+		fs, _, err := cam.GetFeatures()
+		if err != nil {
+			return a.failErr(err)
+		}
+		for _, x := range fs {
+			if x.Name == fi.Name {
+				a.emit(map[string]any{"feature": x}, fmt.Sprintf("%s=%s", x.Name, onOff(x.On)))
+			}
+		}
+		return exitOK
+	}
+	on, err := parseOnOff(f.args[1])
+	if err != nil {
+		return a.fail(exitUsage, "usage", err)
+	}
+	ch, err := cam.SetFeature(fi.Name, on)
+	if err != nil {
+		return a.failErr(err)
+	}
+	a.emit(map[string]any{"feature": ch}, fmt.Sprintf("%s=%s mask 0x%04x -> 0x%04x%s", ch.Feature, onOff(ch.On), ch.MaskBefore, ch.MaskAfter, flags(false, ch.DryRun)))
+	return exitOK
+}
+
+func fmtGestures(g camera.Gestures) string {
+	return fmt.Sprintf("enabled=%s tracking=%s zoom=%s whiteboard=%s (mask 0x%02x)", onOff(g.Enabled), onOff(g.Tracking), onOff(g.Zoom), onOff(g.Whiteboard), g.Mask)
+}
+
+func (a *app) cmdGestures(cam *camera.Camera, f *cmdFlags) int {
+	if len(f.args) > 0 {
+		return a.fail(exitUsage, "usage", fmt.Errorf("unexpected argument %q", f.args[0]))
+	}
+	var u camera.GestureUpdate
+	given := false
+	for _, x := range []struct {
+		n string
+		p **bool
+	}{{"enable", &u.Enabled}, {"tracking", &u.Tracking}, {"zoom", &u.Zoom}, {"whiteboard", &u.Whiteboard}} {
+		if !f.set[x.n] {
+			continue
+		}
+		v, err := parseOnOff(*f.onoff[x.n])
+		if err != nil {
+			return a.fail(exitUsage, "usage", fmt.Errorf("--%s: %v", x.n, err))
+		}
+		*x.p, given = &v, true
+	}
+	if !given {
+		g, err := cam.GetGestures()
+		if err != nil {
+			return a.failErr(err)
+		}
+		a.emit(map[string]any{"gestures": g}, fmtGestures(g))
+		return exitOK
+	}
+	ch, err := cam.SetGestures(u)
+	if err != nil {
+		return a.failErr(err)
+	}
+	a.emit(map[string]any{"gestures": ch}, fmtGestures(ch.After)+flags(false, ch.DryRun))
+	return exitOK
+}
+
+func (a *app) cmdTrackingSpeed(cam *camera.Camera, f *cmdFlags) int {
+	switch {
+	case len(f.args) > 1:
+		return a.fail(exitUsage, "usage", errors.New("tracking-speed takes at most one value"))
+	case len(f.args) == 1:
+		s, err := camera.ParseTrackingSpeed(f.args[0])
+		if err != nil {
+			return a.fail(exitUsage, "usage", err)
+		}
+		r, err := cam.SetTrackingSpeed(s)
+		if err != nil {
+			return a.failErr(err)
+		}
+		a.emit(map[string]any{"tracking_speed": r}, "tracking_speed="+string(r.Applied)+flags(false, r.DryRun))
+		return exitOK
+	}
+	s, err := cam.GetTrackingSpeed()
+	if err != nil {
+		return a.failErr(err)
+	}
+	a.emit(map[string]any{"tracking_speed": s}, "tracking_speed="+string(s))
+	return exitOK
+}
+
+func (a *app) cmdFlicker(cam *camera.Camera, f *cmdFlags) int {
+	switch {
+	case len(f.args) > 1:
+		return a.fail(exitUsage, "usage", errors.New("flicker takes at most one value (50|60)"))
+	case len(f.args) == 1:
+		hz, err := camera.ParsePowerLine(f.args[0])
+		if err != nil {
+			return a.fail(exitUsage, "usage", err)
+		}
+		r, err := cam.SetPowerLine(hz)
+		if err != nil {
+			return a.failErr(err)
+		}
+		a.emit(map[string]any{"flicker_hz": r}, fmt.Sprintf("flicker=%d Hz%s", r.Applied, flags(false, r.DryRun)))
+		return exitOK
+	}
+	hz, err := cam.GetPowerLine()
+	if err != nil {
+		return a.failErr(err)
+	}
+	a.emit(map[string]any{"flicker_hz": int(hz)}, fmt.Sprintf("flicker=%d Hz", hz))
+	return exitOK
+}
+
+// startStream implements --keep-stream. The release function waits
+// --stream-hold first so the gimbal has time to move before the stream closes
+// (the camera drops to privacy when the last stream closes).
+func (a *app) startStream(cam *camera.Camera) (func(), int) {
+	o := camera.StreamOptions{FPS: a.g.fps}
+	if a.g.resolution != "" {
+		if _, err := fmt.Sscanf(a.g.resolution, "%dx%d", &o.Width, &o.Height); err != nil || o.Width <= 0 || o.Height <= 0 {
+			return nil, a.fail(exitUsage, "usage", fmt.Errorf("--resolution %q is not WxH", a.g.resolution))
+		}
+	}
+	w, h, fps, rel, err := cam.KeepStream(o)
+	if err != nil {
+		return nil, a.failErr(err)
+	}
+	fmt.Fprintf(a.err, "stream: %dx%d @%d fps open (unverified on real hardware), held %s after the command\n", w, h, fps, a.g.hold)
+	return func() {
+		if !a.g.dryRun {
+			time.Sleep(a.g.hold)
+		}
+		rel()
+	}, exitOK
 }

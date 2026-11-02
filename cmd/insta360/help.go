@@ -42,6 +42,10 @@ COMMANDS
   center      return to pan=0 tilt=0 (alias: home)
   zoom        read or set zoom only
   mode        read or set the camera mode (normal|tracking|whiteboard|overhead|desk)
+  feature     list or switch on/off features (hdr, gestures, onetouch-tracking, auto-tracking, smart-framing, vertical-lock)
+  gestures    read or set the gesture controls (--enable --tracking --zoom --whiteboard)
+  tracking-speed  read or set the AI tracking speed (quick|normal|slow)
+  flicker     read or set the anti-flicker power line frequency (50|60)
   help-agent  print the complete reference as one Markdown document
   version     print version
 
@@ -54,6 +58,10 @@ GLOBAL FLAGS (accepted before or after the command)
   --dry-run          validate and report what would be sent, but write nothing to the camera.
   --timeout DUR      per-transfer timeout, Go duration (default 2s).
   --clamp            clamp out-of-range values instead of failing (exit 4).
+  --keep-stream      Linux v4l2 backend only, UNVERIFIED on real hardware: hold a capture stream open
+                     while the command runs (the camera only moves with a stream), then --stream-hold
+                     DUR (default 3s) more, then release. Options: --resolution WxH (default 1920x1080), --fps N (30).
+                     Other backends: exit 6.
 
 UNITS
   pan, tilt  degrees (float). Wire format is arc-seconds (3600 = 1 deg); resolution 1/3600 deg.
@@ -84,6 +92,13 @@ IMPORTANT CAVEATS (read before automating)
   7. Modes: besides normal, the camera has special modes that move the gimbal ON THEIR OWN
      (tracking, whiteboard, overhead, desk). While one is active, 'set'/'move' of pan/tilt is
      overridden or ignored. 'set --normal' switches to mode normal first. See 'insta360 mode --help'.
+
+  8. Features, gestures, tracking speed and flicker are plain configuration writes: they need no
+     stream. Their PHYSICAL effects (vertical-lock moves the gimbal to 90 degrees, auto-tracking and
+     onetouch-tracking make the camera move by itself) need an active stream. Features are bits of one
+     mask that is always read-modify-written, so unknown bits are preserved. There is NO command for
+     privacy/sleep (the camera enters privacy by itself when no stream is open and wakes when one starts),
+     nor for resolution/fps (not a camera setting) nor for presets (they live in the official app).
 
 EXIT CODES
 ` + exitCodesTable + `
@@ -134,10 +149,10 @@ var docs = []cmdDoc{
 		Name:    "get",
 		Summary: "Read pan/tilt/zoom. Values are what was last COMMANDED, not the measured position.",
 		Usage:   "insta360 get [--all]",
-		Flags:   "--all   also read focus, roll, autofocus and mode (best effort; failures are reported in \"warnings\", not as errors)",
+		Flags:   "--all   also read focus, roll, autofocus, mode, features, gestures, tracking speed and flicker (best effort; failures are reported in \"warnings\", not as errors)",
 		Output: `JSON: {"pan":10,"tilt":-5,"zoom":150,"zoom_factor":1.5,"commanded_not_measured":true}
   pan/tilt in degrees; zoom raw 100..400. With --all adds "focus", "roll" (integers),
-  "autofocus" (bool, when supported), "mode" (string, when supported) and possibly "warnings":["focus: ..."].`,
+  "autofocus" (bool, when supported), "mode" (string, when supported), "features" (object name->bool) and "feature_mask" ("0x0220"), "gestures" (object), "tracking_speed", "flicker_hz" and possibly "warnings":["focus: ..."].`,
 		Examples: "insta360 get\ninsta360 get --all --json=false",
 	},
 	{
@@ -148,7 +163,7 @@ var docs = []cmdDoc{
 --tilt DEG   absolute tilt in degrees, -90..100
 --zoom RAW   absolute zoom, integer 100..400 (100 = 1.0x)
 --focus RAW  absolute focus, integer 0..100 (turns autofocus off first)
---roll RAW   absolute roll, integer -100..100 (signed)
+--roll RAW   absolute roll, integer -100..100 (signed). This is the app's \"Ajuste horizontal\" (horizon leveling)
 --autofocus[=BOOL]  switch autofocus on/off ("--autofocus=false" to disable)
 --normal (alias --release)  if the camera is in a special mode (see 'mode'), switch to 'normal'
              first and wait 1.5 s. Without it, a warning is printed (stderr, and "warnings" in the JSON)
@@ -169,6 +184,43 @@ At least one of these is required (else exit 2). Values outside the range exit 4
   Write: {"mode":{"requested":"overhead","applied":"overhead","clamped":false,"dry_run":false}}
   Nothing is read back after a write; poll 'insta360 mode' (the camera needs ~1 s to settle).`,
 		Examples: "insta360 mode\ninsta360 mode overhead\ninsta360 mode normal\ninsta360 --dry-run mode tracking",
+	},
+	{
+		Name:    "feature",
+		Summary: "List all features with their state, or read/switch one. Features are bits of the unit 9 selector 0x1b mask, always read-modify-written (unknown bits preserved; 0x0020 is always set). Names: hdr (0x004), gestures (0x010 master switch, hypothesis), onetouch-tracking (0x080: one-touch AI tracking toggle), auto-tracking (0x100: tracks when the gimbal is aimed manually), smart-framing (0x200, on by default), vertical-lock (0x400: gimbal fixed at 90 degrees, resolution unchanged). CAVEATS: vertical-lock MOVES the gimbal to 90 deg; auto-tracking and onetouch-tracking make the camera move by itself. Needs no stream, but the physical effects need one.",
+		Usage:   "insta360 feature [NAME [on|off]]",
+		Flags:   "NAME   feature name (case-insensitive); unknown: exit 2\non|off  state to set (also true|false|1|0); without it the feature is only read",
+		Output: `List:  {"features":[{"name":"hdr","on":false},...],"mask":544}
+  Read:  {"feature":{"name":"hdr","on":false}}
+  Write: {"feature":{"feature":"hdr","on":true,"mask_before":544,"mask_after":548,"dry_run":false}}`,
+		Examples: "insta360 feature\ninsta360 feature hdr on\ninsta360 feature vertical-lock off\ninsta360 --dry-run feature auto-tracking on",
+	},
+	{
+		Name:    "gestures",
+		Summary: "Read or set the gesture controls. Enabled = master switch (feature mask bit 0x010, hypothesis, matches the app capture); tracking / zoom / whiteboard = gesture mask bits 0x02 / 0x04 / 0x08 of unit 9 selector 0x05. Only the options you pass change; other bits are preserved. Without options: print the state.",
+		Usage:   "insta360 gestures [--enable on|off] [--tracking on|off] [--zoom on|off] [--whiteboard on|off]",
+		Flags:   "--enable V      master switch\n--tracking V    tracking gesture\n--zoom V        zoom gesture\n--whiteboard V  whiteboard gesture\nV is on|off (also true|false|1|0); anything else: exit 2",
+		Output: `Read:  {"gestures":{"enabled":false,"tracking":false,"zoom":false,"whiteboard":false,"mask":0}}
+  Write: {"gestures":{"before":{...},"after":{...},"dry_run":false}}`,
+		Examples: "insta360 gestures\ninsta360 gestures --enable on --tracking on --zoom on\ninsta360 gestures --enable off --tracking off --zoom off --whiteboard off",
+	},
+	{
+		Name:    "tracking-speed",
+		Summary: "Read or set the AI tracking speed (unit 9 selector 0x12): quick (0), normal (1, the app's \"Ordinario\"), slow (2). Needs no stream; only matters while tracking.",
+		Usage:   "insta360 tracking-speed [quick|normal|slow]",
+		Flags:   "NAME   speed to set; unknown: exit 2",
+		Output: `Read:  {"tracking_speed":"normal"}   (unseen value: "unknown(0x03)")
+  Write: {"tracking_speed":{"requested":"slow","applied":"slow","clamped":false,"dry_run":false}}`,
+		Examples: "insta360 tracking-speed\ninsta360 tracking-speed quick",
+	},
+	{
+		Name:    "flicker",
+		Summary: "Read or set the anti-flicker (power line frequency) through the standard UVC processing unit control (50 or 60 Hz; the UVC values disabled/auto are not settable). Needs no stream.",
+		Usage:   "insta360 flicker [50|60]",
+		Flags:   "50|60   frequency in Hz (\"50hz\" also accepted); anything else: exit 2",
+		Output: `Read:  {"flicker_hz":50}   (0 if the camera reports disabled/auto)
+  Write: {"flicker_hz":{"requested":60,"applied":60,"clamped":false,"dry_run":false}}`,
+		Examples: "insta360 flicker\ninsta360 flicker 60",
 	},
 	{
 		Name:    "move",
@@ -202,14 +254,18 @@ The resulting absolute value must stay in range (exit 4, or clamp with --clamp).
 }
 
 var cmdExits = map[string]string{
-	"list":   "0 ok (including no devices); 2 usage; 6 backend unavailable",
-	"info":   "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 backend unavailable; 7 permission/busy",
-	"get":    "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 backend unavailable; 7 permission/busy",
-	"set":    "0 ok; 2 usage (no axis flag, bad number); 3 no camera; 4 out of range or NaN (unless --clamp); 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
-	"move":   "0 ok; 2 usage; 3 no camera; 4 resulting value out of range (unless --clamp); 5 transfer/timeout; 6 unavailable; 7 permission/busy",
-	"center": "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 unavailable; 7 permission/busy",
-	"mode":   "0 ok; 2 usage (unknown mode name); 3 no camera; 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
-	"zoom":   "0 ok; 2 usage (not an integer, extra args); 3 no camera; 4 out of range (unless --clamp); 5 transfer/timeout; 6 unavailable; 7 permission/busy",
+	"list":           "0 ok (including no devices); 2 usage; 6 backend unavailable",
+	"info":           "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 backend unavailable; 7 permission/busy",
+	"get":            "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 backend unavailable; 7 permission/busy",
+	"set":            "0 ok; 2 usage (no axis flag, bad number); 3 no camera; 4 out of range or NaN (unless --clamp); 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
+	"move":           "0 ok; 2 usage; 3 no camera; 4 resulting value out of range (unless --clamp); 5 transfer/timeout; 6 unavailable; 7 permission/busy",
+	"center":         "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 unavailable; 7 permission/busy",
+	"mode":           "0 ok; 2 usage (unknown mode name); 3 no camera; 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
+	"feature":        "0 ok; 2 usage (unknown feature, bad on|off); 3 no camera; 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
+	"gestures":       "0 ok; 2 usage (bad on|off, positional argument); 3 no camera; 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
+	"tracking-speed": "0 ok; 2 usage (unknown speed); 3 no camera; 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
+	"flicker":        "0 ok; 2 usage (not 50 or 60); 3 no camera; 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
+	"zoom":           "0 ok; 2 usage (not an integer, extra args); 3 no camera; 4 out of range (unless --clamp); 5 transfer/timeout; 6 unavailable; 7 permission/busy",
 }
 
 func findDoc(name string) *cmdDoc {
@@ -226,7 +282,7 @@ func findDoc(name string) *cmdDoc {
 
 func (d cmdDoc) text() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n\nUSAGE\n  %s\n\nFLAGS\n%s\n\nOUTPUT\n  %s\n\nEXAMPLES\n%s\n\nEXIT CODES\n  %s\n  (full table: 'insta360 --help')\n\nERRORS\n  stderr, with --json: {\"error\":{\"code\":\"out_of_range\",\"message\":\"...\",\"exit_code\":4}}\n\nGlobal flags (valid before or after the command): --json --device --backend --dry-run --timeout --clamp.\nUnits and caveats (movement needs an active video stream; get returns the commanded value): 'insta360 --help'.\n",
+	fmt.Fprintf(&b, "%s\n\nUSAGE\n  %s\n\nFLAGS\n%s\n\nOUTPUT\n  %s\n\nEXAMPLES\n%s\n\nEXIT CODES\n  %s\n  (full table: 'insta360 --help')\n\nERRORS\n  stderr, with --json: {\"error\":{\"code\":\"out_of_range\",\"message\":\"...\",\"exit_code\":4}}\n\nGlobal flags (valid before or after the command): --json --device --backend --dry-run --timeout --clamp --keep-stream --resolution --fps --stream-hold.\nUnits and caveats (movement needs an active video stream; get returns the commanded value): 'insta360 --help'.\n",
 		d.Summary, d.Usage, indent(d.Flags), indent(d.Output), indent(d.Examples), cmdExits[d.Name])
 	return b.String()
 }
