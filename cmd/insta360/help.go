@@ -68,7 +68,9 @@ IMPORTANT CAVEATS (read before automating)
      A successful 'set' followed by 'get' proves the command was accepted, not that the
      gimbal arrived. Do not use 'get' as feedback that movement completed.
   3. Relative moves ('move') are computed client-side from the commanded value in (2).
-  4. Native UVC PANTILT_RELATIVE is not supported by the camera; focus/roll are listed in
+  4. Ranges (pan -145..145, tilt -90..100, zoom 100..400, ...) are built-in DEFAULTS for the
+     Insta360 Link, not queried from the camera. 'info' prints these defaults.
+  5. Native UVC PANTILT_RELATIVE is not supported by the camera; focus/roll are listed in
      the descriptor but unverified.
 
 EXIT CODES
@@ -76,14 +78,20 @@ EXIT CODES
 
 OUTPUT
   Data goes to stdout (JSON object when --json). Errors go to stderr; with --json they are
-  a JSON object: {"error":{"code":"out_of_range","message":"...","exit_code":4}}.
+  a JSON object on one line, for example (exit code 4):
+    {"error":{"code":"out_of_range","message":"pan 500 out of range [-145, 145]","exit_code":4}}
+  "code" is one of: usage, no_device, out_of_range, invalid_value, transfer, timeout,
+  unavailable, unsupported, permission, internal. Always branch on the process exit code
+  or on "code", never on "message".
+  Flags and positionals may appear in any order: 'insta360 zoom 200 --json' is valid.
+  A '--' argument ends flag parsing; everything after it is positional.
 
 Run 'insta360 <command> --help' for details, or 'insta360 help-agent' for the full reference.
 `
 
 // cmdDoc is the per-command reference, used by '<cmd> --help' and help-agent.
 type cmdDoc struct {
-	Name, Summary, Usage, Flags, Output, Examples, Notes string
+	Name, Summary, Usage, Flags, Output, Examples string
 }
 
 var docs = []cmdDoc{
@@ -164,6 +172,16 @@ The resulting absolute value must stay in range (exit 4, or clamp with --clamp).
 	},
 }
 
+var cmdExits = map[string]string{
+	"list":   "0 ok (including no devices); 2 usage; 6 backend unavailable",
+	"info":   "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 backend unavailable; 7 permission/busy",
+	"get":    "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 backend unavailable; 7 permission/busy",
+	"set":    "0 ok; 2 usage (no axis flag, bad number); 3 no camera; 4 out of range or NaN (unless --clamp); 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
+	"move":   "0 ok; 2 usage; 3 no camera; 4 resulting value out of range (unless --clamp); 5 transfer/timeout; 6 unavailable; 7 permission/busy",
+	"center": "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 unavailable; 7 permission/busy",
+	"zoom":   "0 ok; 2 usage (not an integer, extra args); 3 no camera; 4 out of range (unless --clamp); 5 transfer/timeout; 6 unavailable; 7 permission/busy",
+}
+
 func findDoc(name string) *cmdDoc {
 	if name == "home" {
 		name = "center"
@@ -178,8 +196,8 @@ func findDoc(name string) *cmdDoc {
 
 func (d cmdDoc) text() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n\nUSAGE\n  %s\n\nFLAGS\n%s\n\nOUTPUT\n  %s\n\nEXAMPLES\n%s\n\nGlobal flags, units, caveats and exit codes: 'insta360 --help'.\n",
-		d.Summary, d.Usage, indent(d.Flags), indent(d.Output), indent(d.Examples))
+	fmt.Fprintf(&b, "%s\n\nUSAGE\n  %s\n\nFLAGS\n%s\n\nOUTPUT\n  %s\n\nEXAMPLES\n%s\n\nEXIT CODES\n  %s\n  (full table: 'insta360 --help')\n\nERRORS\n  stderr, with --json: {\"error\":{\"code\":\"out_of_range\",\"message\":\"...\",\"exit_code\":4}}\n\nGlobal flags (valid before or after the command): --json --device --backend --dry-run --timeout --clamp.\nUnits and caveats (movement needs an active video stream; get returns the commanded value): 'insta360 --help'.\n",
+		d.Summary, d.Usage, indent(d.Flags), indent(d.Output), indent(d.Examples), cmdExits[d.Name])
 	return b.String()
 }
 
@@ -203,9 +221,9 @@ func agentReference() string {
 	b.WriteString("Codes: `usage`, `no_device`, `out_of_range`, `invalid_value`, `transfer`, `timeout`, `unavailable`, `unsupported`, `permission`, `internal`.\n\n")
 	b.WriteString("## Commands\n\n")
 	for _, d := range docs {
-		fmt.Fprintf(&b, "### `%s`\n\n%s\n\n**Usage:** `%s`\n\n**Flags:**\n\n```text\n%s\n```\n\n**Output:**\n\n```text\n%s\n```\n\n**Examples:**\n\n```sh\n%s\n```\n\n",
-			d.Name, d.Summary, d.Usage, d.Flags, d.Output, d.Examples)
+		fmt.Fprintf(&b, "### `%s`\n\n%s\n\n**Usage:** `%s`\n\n**Flags:**\n\n```text\n%s\n```\n\n**Output:**\n\n```text\n%s\n```\n\n**Examples:**\n\n```sh\n%s\n```\n\n**Exit codes:** %s\n\n",
+			d.Name, d.Summary, d.Usage, d.Flags, d.Output, d.Examples, cmdExits[d.Name])
 	}
-	b.WriteString("### `help-agent`\n\nPrints this document. ### `version` prints the version.\n")
+	b.WriteString("### `help-agent`\n\nPrints this document (exit 0).\n\n### `version`\n\nPrints the version string (exit 0).\n")
 	return b.String()
 }

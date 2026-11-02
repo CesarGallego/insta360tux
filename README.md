@@ -31,7 +31,9 @@ insta360 --dry-run set --pan 10
 ```
 
 Output is JSON when stdout is not a terminal (`--json` / `--json=false` to force). Errors go to
-stderr. Global flags: `--json --device --backend --dry-run --timeout --clamp`.
+stderr (with `--json`: `{"error":{"code":"out_of_range","message":"...","exit_code":4}}`).
+Global flags `--json --device --backend --dry-run --timeout --clamp` and command flags may appear in
+any position (`insta360 zoom 200 --json`); `--` ends flag parsing.
 Exit codes: 0 ok, 1 internal, 2 usage, 3 no device, 4 out of range, 5 transfer/timeout,
 6 backend unavailable/unsupported, 7 permission/busy.
 
@@ -45,6 +47,7 @@ focus 0..100; roll -100..100.
 
 - The gimbal has only been seen moving while a **video stream is active** (hypothesis).
 - `get` returns the **commanded** value, not the real position.
+- Ranges are built-in defaults for the Link, not queried from the camera.
 - Focus and roll controls are in the descriptor but unverified; `PANTILT_RELATIVE` is unsupported
   by the camera, so `move` is computed client-side.
 

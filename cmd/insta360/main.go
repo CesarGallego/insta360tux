@@ -72,44 +72,98 @@ func newFS(name string, a *app) *flag.FlagSet {
 	return fs
 }
 
+// globalValueFlags take a separate value argument ("--device X").
+var globalValueFlags = map[string]bool{"device": true, "backend": true, "timeout": true}
+
+// splitCommand finds the command word: the first argument that is not a flag
+// (nor the value of a global value flag). It returns the index, or -1.
+func splitCommand(args []string) int {
+	for i := 0; i < len(args); i++ {
+		s := args[i]
+		if s == "--" {
+			return -1
+		}
+		if !strings.HasPrefix(s, "-") || s == "-" {
+			return i
+		}
+		name := strings.TrimLeft(s, "-")
+		if !strings.Contains(name, "=") && globalValueFlags[name] {
+			i++
+		}
+	}
+	return -1
+}
+
+// parseInterleaved parses flags and positionals in any order. Everything after
+// a "--" argument is positional.
+func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
+	var tail []string
+	for i, s := range args {
+		if s == "--" {
+			args, tail = args[:i], args[i+1:]
+			break
+		}
+	}
+	var pos []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return append(pos, tail...), nil
+		}
+		pos = append(pos, args[0])
+		args = args[1:]
+	}
+}
+
 func run(args []string, stdout, stderr io.Writer, tty bool) int {
 	a := &app{out: stdout, err: stderr, isTTY: tty}
 	a.g.timeout = 2 * time.Second
 
-	// Global flags before the command.
-	gfs := newFS("insta360", a)
-	helpTop := false
-	i := 0
-	for ; i < len(args) && strings.HasPrefix(args[i], "-") && args[i] != "-"; i++ {
-		if args[i] == "-h" || args[i] == "--help" || args[i] == "-help" {
-			helpTop = true
-		}
-	}
-	if helpTop {
-		fmt.Fprint(stdout, overview)
-		return exitOK
-	}
-	// Parse the leading flags (flag stops at the first non-flag).
-	if err := gfs.Parse(args); err != nil {
-		a.finish()
-		return a.fail(exitUsage, "usage", err)
-	}
-	rest := gfs.Args()
-	a.finish()
-	if len(rest) == 0 {
-		fmt.Fprint(stderr, overview)
-		return exitUsage
-	}
-	cmd, cargs := rest[0], rest[1:]
-	switch cmd {
-	case "help", "help-agent", "--help-all":
-		if cmd == "help" && len(cargs) > 0 {
-			if d := findDoc(cargs[0]); d != nil {
-				fmt.Fprint(stdout, d.text())
+	ci := splitCommand(args)
+	if ci < 0 {
+		for _, s := range args {
+			if s == "--" {
+				break
+			}
+			if s == "-h" || s == "--help" || s == "-help" {
+				fmt.Fprint(stdout, overview)
 				return exitOK
 			}
 		}
+		// Only flags (or nothing): validate them for a good error, then show usage.
+		if len(args) > 0 {
+			gfs := newFS("insta360", a)
+			if err := gfs.Parse(args); err != nil {
+				a.finish()
+				return a.fail(exitUsage, "usage", err)
+			}
+		}
+		a.finish()
+		fmt.Fprint(stderr, overview)
+		return exitUsage
+	}
+	if hasHelp(args[:ci]) {
+		fmt.Fprint(stdout, overview)
+		return exitOK
+	}
+	cmd := args[ci]
+	rest := append(append([]string{}, args[:ci]...), args[ci+1:]...)
+
+	switch cmd {
+	case "help", "help-agent", "--help-all":
+		a.finish()
 		if cmd == "help" {
+			for _, s := range rest {
+				if !strings.HasPrefix(s, "-") {
+					if d := findDoc(s); d != nil {
+						fmt.Fprint(stdout, d.text())
+						return exitOK
+					}
+				}
+			}
 			fmt.Fprint(stdout, overview)
 		} else {
 			fmt.Fprint(stdout, agentReference())
@@ -122,22 +176,23 @@ func run(args []string, stdout, stderr io.Writer, tty bool) int {
 
 	d := findDoc(cmd)
 	if d == nil {
+		a.finish()
 		return a.fail(exitUsage, "usage", fmt.Errorf("unknown command %q (try 'insta360 --help')", cmd))
 	}
 	fs := newFS(cmd, a)
 	f := declareCmdFlags(fs, d.Name)
-	if hasHelp(cargs) {
+	if hasHelp(rest) {
 		fmt.Fprint(stdout, d.text())
 		return exitOK
 	}
-	if err := fs.Parse(cargs); err != nil {
-		a.finish()
+	pos, err := parseInterleaved(fs, rest)
+	a.finish()
+	if err != nil {
 		return a.fail(exitUsage, "usage", fmt.Errorf("%s: %v (try 'insta360 %s --help')", cmd, err, cmd))
 	}
-	a.finish()
 	f.set = map[string]bool{}
 	fs.Visit(func(fl *flag.Flag) { f.set[fl.Name] = true })
-	f.args = fs.Args()
+	f.args = pos
 	return a.dispatch(d.Name, f)
 }
 
