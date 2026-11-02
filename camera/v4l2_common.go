@@ -64,6 +64,7 @@ var (
 
 // Camera-class control ids (linux/v4l2-controls.h).
 const (
+	v4l2CIDPowerLine     = 0x00980918 // V4L2_CID_POWER_LINE_FREQUENCY
 	v4l2CIDFocusAbsolute = 0x009a090a
 	v4l2CIDZoomAbsolute  = 0x009a090d
 	v4l2CIDPanAbsolute   = 0x009a0908

@@ -11,13 +11,19 @@ type Backend struct {
 	Zoom, Focus, Roll int
 	AutoFocus         bool
 	Mode              camera.Mode // zero value means normal
+	FeatureMask       uint16      // unit 9 sel 0x1b; New() starts at the app's base state 0x0220
+	GestureMask       byte
+	Speed             camera.TrackingSpeed // zero value means normal
+	PowerLine         camera.PowerLineFrequency
 	Opened            bool
 	Writes            int // number of Set* calls reaching the backend
 	Fail              error
 }
 
 // New returns a fake at home position (zoom 100).
-func New() *Backend { return &Backend{Zoom: 100} }
+func New() *Backend {
+	return &Backend{Zoom: 100, FeatureMask: 0x0220, PowerLine: camera.PowerLine50}
+}
 
 func (b *Backend) Name() string                          { return "fake" }
 func (b *Backend) Open(camera.Options) error             { b.Opened = true; return b.Fail }
@@ -41,6 +47,30 @@ func (b *Backend) GetMode() (camera.Mode, error) {
 	return b.Mode, b.Fail
 }
 func (b *Backend) SetMode(m camera.Mode) error { b.Writes++; b.Mode = m; return b.Fail }
+
+func (b *Backend) GetFeatureMask() (uint16, error) { return b.FeatureMask, b.Fail }
+func (b *Backend) SetFeatureMask(m uint16) error   { b.Writes++; b.FeatureMask = m; return b.Fail }
+func (b *Backend) GetGestureMask() (byte, error)   { return b.GestureMask, b.Fail }
+func (b *Backend) SetGestureMask(m byte) error     { b.Writes++; b.GestureMask = m; return b.Fail }
+func (b *Backend) GetTrackingSpeed() (camera.TrackingSpeed, error) {
+	if b.Speed == "" {
+		return camera.SpeedNormal, b.Fail
+	}
+	return b.Speed, b.Fail
+}
+func (b *Backend) SetTrackingSpeed(s camera.TrackingSpeed) error {
+	b.Writes++
+	b.Speed = s
+	return b.Fail
+}
+func (b *Backend) GetPowerLine() (camera.PowerLineFrequency, error) {
+	return b.PowerLine, b.Fail
+}
+func (b *Backend) SetPowerLine(f camera.PowerLineFrequency) error {
+	b.Writes++
+	b.PowerLine = f
+	return b.Fail
+}
 
 func (b *Backend) Info() (camera.Info, error) {
 	f, r := camera.DefaultFocusRange, camera.DefaultRollRange

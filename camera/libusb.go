@@ -31,6 +31,11 @@ const (
 	selFocusAut = 0x08 // FOCUS_AUTO_CONTROL, 1 byte
 	unitXU9     = 9    // proprietary extension unit 9
 	selXUMode   = 0x02 // unit 9: 52 byte status/mode block
+	selXUGest   = 0x05 // unit 9: gesture mask, 1 byte
+	selXUSpeed  = 0x12 // unit 9: tracking speed, 1 byte
+	selXUFeat   = 0x1b // unit 9: feature bitmask, u16 LE
+	unitPU      = 5    // Processing Unit
+	selPowerLn  = 0x05 // PU_POWER_LINE_FREQUENCY_CONTROL, 1 byte
 )
 
 func init() {
@@ -286,6 +291,65 @@ func (b *libusbBackend) SetMode(m Mode) error {
 		return err
 	}
 	return b.setUnit("SET mode", unitXU9, selXUMode, d)
+}
+
+// GetFeatureMask reads unit 9 selector 0x1b (u16 LE).
+func (b *libusbBackend) GetFeatureMask() (uint16, error) {
+	d, err := b.getUnit("GET features", unitXU9, reqGetCur, selXUFeat, 2)
+	if err != nil {
+		return 0, err
+	}
+	return binary.LittleEndian.Uint16(d), nil
+}
+
+func (b *libusbBackend) SetFeatureMask(m uint16) error {
+	d := make([]byte, 2)
+	binary.LittleEndian.PutUint16(d, m)
+	return b.setUnit("SET features", unitXU9, selXUFeat, d)
+}
+
+func (b *libusbBackend) GetGestureMask() (byte, error) {
+	d, err := b.getUnit("GET gestures", unitXU9, reqGetCur, selXUGest, 1)
+	if err != nil {
+		return 0, err
+	}
+	return d[0], nil
+}
+
+func (b *libusbBackend) SetGestureMask(m byte) error {
+	return b.setUnit("SET gestures", unitXU9, selXUGest, []byte{m})
+}
+
+func (b *libusbBackend) GetTrackingSpeed() (TrackingSpeed, error) {
+	d, err := b.getUnit("GET tracking speed", unitXU9, reqGetCur, selXUSpeed, 1)
+	if err != nil {
+		return "", err
+	}
+	return TrackingSpeedFromByte(d[0]), nil
+}
+
+func (b *libusbBackend) SetTrackingSpeed(s TrackingSpeed) error {
+	v, ok := TrackingSpeedByte(s)
+	if !ok {
+		return ErrInvalidValue
+	}
+	return b.setUnit("SET tracking speed", unitXU9, selXUSpeed, []byte{v})
+}
+
+func (b *libusbBackend) GetPowerLine() (PowerLineFrequency, error) {
+	d, err := b.getUnit("GET power line", unitPU, reqGetCur, selPowerLn, 1)
+	if err != nil {
+		return 0, err
+	}
+	return PowerLineFromByte(d[0]), nil
+}
+
+func (b *libusbBackend) SetPowerLine(f PowerLineFrequency) error {
+	v, ok := PowerLineByte(f)
+	if !ok {
+		return ErrInvalidValue
+	}
+	return b.setUnit("SET power line", unitPU, selPowerLn, []byte{v})
 }
 
 // Roll is a signed 16-bit value on the wire.

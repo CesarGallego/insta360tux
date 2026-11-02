@@ -319,6 +319,61 @@ func (b *v4l2Backend) SetMode(m Mode) error {
 	return b.xuQuery("SET mode", uvcSetCur, 9, 0x02, d)
 }
 
+// Feature mask, gesture mask and tracking speed through UVCIOC_CTRL_QUERY
+// (same unit/selectors as the libusb backend). UNVERIFIED on real Linux hardware.
+
+func (b *v4l2Backend) GetFeatureMask() (uint16, error) {
+	d := make([]byte, 2)
+	if err := b.xuQuery("GET features", uvcGetCur, 9, 0x1b, d); err != nil {
+		return 0, err
+	}
+	return uint16(d[0]) | uint16(d[1])<<8, nil
+}
+
+func (b *v4l2Backend) SetFeatureMask(m uint16) error {
+	return b.xuQuery("SET features", uvcSetCur, 9, 0x1b, []byte{byte(m), byte(m >> 8)})
+}
+
+func (b *v4l2Backend) GetGestureMask() (byte, error) {
+	d := make([]byte, 1)
+	err := b.xuQuery("GET gestures", uvcGetCur, 9, 0x05, d)
+	return d[0], err
+}
+
+func (b *v4l2Backend) SetGestureMask(m byte) error {
+	return b.xuQuery("SET gestures", uvcSetCur, 9, 0x05, []byte{m})
+}
+
+func (b *v4l2Backend) GetTrackingSpeed() (TrackingSpeed, error) {
+	d := make([]byte, 1)
+	if err := b.xuQuery("GET tracking speed", uvcGetCur, 9, 0x12, d); err != nil {
+		return "", err
+	}
+	return TrackingSpeedFromByte(d[0]), nil
+}
+
+func (b *v4l2Backend) SetTrackingSpeed(s TrackingSpeed) error {
+	v, ok := TrackingSpeedByte(s)
+	if !ok {
+		return ErrInvalidValue
+	}
+	return b.xuQuery("SET tracking speed", uvcSetCur, 9, 0x12, []byte{v})
+}
+
+// Power line uses the standard V4L2 control (same values as UVC: 1 = 50 Hz, 2 = 60 Hz).
+func (b *v4l2Backend) GetPowerLine() (PowerLineFrequency, error) {
+	v, err := b.getCtrl("GET power line", v4l2CIDPowerLine)
+	return PowerLineFromByte(byte(v)), err
+}
+
+func (b *v4l2Backend) SetPowerLine(f PowerLineFrequency) error {
+	v, ok := PowerLineByte(f)
+	if !ok {
+		return ErrInvalidValue
+	}
+	return b.setCtrl("SET power line", v4l2CIDPowerLine, int32(v))
+}
+
 const (
 	uvcSetCur = 0x01
 	uvcGetCur = 0x81
