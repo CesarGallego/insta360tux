@@ -28,6 +28,7 @@ const (
 	selZoomAbs  = 0x0B
 	selPanTiltA = 0x0D
 	selRollAbs  = 0x0F
+	selFocusAut = 0x08 // FOCUS_AUTO_CONTROL, 1 byte
 )
 
 func init() {
@@ -154,11 +155,15 @@ func (b *libusbBackend) Info() (Info, error) {
 }
 
 func (b *libusbBackend) get(op string, sel uint16, n int) ([]byte, error) {
+	return b.getReq(op, reqGetCur, sel, n)
+}
+
+func (b *libusbBackend) getReq(op string, req uint8, sel uint16, n int) ([]byte, error) {
 	if b.dev == nil {
 		return nil, ErrNoDevice
 	}
 	buf := make([]byte, n)
-	got, err := b.dev.Control(typeGetCls, reqGetCur, sel<<8, unitCamera<<8|ifaceCtl, buf)
+	got, err := b.dev.Control(typeGetCls, req, sel<<8, unitCamera<<8|ifaceCtl, buf)
 	if err != nil {
 		return nil, mapErr(op, err)
 	}
@@ -218,7 +223,41 @@ func (b *libusbBackend) SetZoom(z int) error   { return b.setU16("SET zoom", sel
 func (b *libusbBackend) GetFocus() (int, error) {
 	return b.getU16("GET focus", selFocusAbs)
 }
-func (b *libusbBackend) SetFocus(v int) error { return b.setU16("SET focus", selFocusAbs, v) }
+
+// SetFocus writes the focus. The camera stalls manual focus writes while
+// autofocus is on (verified on hardware), so autofocus is switched off first;
+// it stays off until SetAutoFocus(true).
+func (b *libusbBackend) SetFocus(v int) error {
+	if on, err := b.GetAutoFocus(); err == nil && on {
+		if err := b.SetAutoFocus(false); err != nil {
+			return err
+		}
+	}
+	return b.setU16("SET focus", selFocusAbs, v)
+}
+
+func (b *libusbBackend) GetAutoFocus() (bool, error) {
+	d, err := b.get("GET autofocus", selFocusAut, 1)
+	if err != nil {
+		return false, err
+	}
+	return d[0] != 0, nil
+}
+
+func (b *libusbBackend) SetAutoFocus(on bool) error {
+	v := byte(0)
+	if on {
+		v = 1
+	}
+	return b.set("SET autofocus", selFocusAut, []byte{v})
+}
+
+// QueryLimits asks the camera for GET_MIN/MAX/RES/DEF of the PTZ controls.
+func (b *libusbBackend) QueryLimits() (Limits, error) {
+	return QueryUVCLimits(func(req uint8, sel uint16, n int) ([]byte, error) {
+		return b.getReq(fmt.Sprintf("GET 0x%02X sel 0x%02X", req, sel), req, sel, n)
+	})
+}
 
 // Roll is a signed 16-bit value on the wire.
 func (b *libusbBackend) GetRoll() (int, error) {

@@ -47,9 +47,13 @@ focus 0..100; roll -100..100.
 
 - The gimbal has only been seen moving while a **video stream is active** (hypothesis).
 - `get` returns the **commanded** value, not the real position.
-- Ranges are built-in defaults for the Link, not queried from the camera.
-- Focus and roll controls are in the descriptor but unverified; `PANTILT_RELATIVE` is unsupported
-  by the camera, so `move` is computed client-side.
+- Ranges are queried from the camera (`info` shows `ranges_source`: `device` or `default`); they
+  matched the built-in defaults on a real Link.
+- `PANTILT_RELATIVE` (and zoom/roll relative) are unsupported by the camera, so `move` is computed client-side.
+- Manual focus is rejected while autofocus is on: `set --focus N` switches autofocus off first;
+  `set --autofocus=true` restores it. Roll is signed (-100..100).
+- Verified on a real Link under macOS (libusb backend, Photo Booth streaming): absolute pan/tilt/zoom,
+  relative `move`, `center`, `--clamp`, `--dry-run`, focus, roll, `--device` selectors. See HANDOFF.md.
 
 ## Library
 

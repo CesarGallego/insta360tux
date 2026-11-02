@@ -55,6 +55,14 @@ type Info struct {
 	ZoomRange Range  `json:"zoom_range"`
 	Focus     *Range `json:"focus_range,omitempty"` // nil when unsupported
 	Roll      *Range `json:"roll_range,omitempty"`  // nil when unsupported
+
+	// RangesSource is "device" when the ranges were queried from the camera
+	// (UVC GET_MIN/GET_MAX) or "default" when they are built-in values.
+	RangesSource string `json:"ranges_source,omitempty"`
+	// RangesWarning explains why querying failed and defaults are used.
+	RangesWarning string `json:"ranges_warning,omitempty"`
+	// Controls has the full queried limits (min, max, res, def) per control.
+	Controls map[string]ControlLimits `json:"controls,omitempty"`
 }
 
 // Backend is the transport interface. Implementations talk to the camera
@@ -95,6 +103,13 @@ type FocusController interface {
 type RollController interface {
 	GetRoll() (int, error)
 	SetRoll(v int) error
+}
+
+// AutoFocusController is optionally implemented by backends with a switchable
+// autofocus. While autofocus is on the camera rejects manual focus writes.
+type AutoFocusController interface {
+	GetAutoFocus() (bool, error)
+	SetAutoFocus(on bool) error
 }
 
 // DeviceInfo identifies an attached camera, as returned by List.

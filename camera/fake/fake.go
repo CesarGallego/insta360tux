@@ -9,6 +9,7 @@ import "github.com/CesarGallego/insta360tux/camera"
 type Backend struct {
 	Pan, Tilt         float64
 	Zoom, Focus, Roll int
+	AutoFocus         bool
 	Opened            bool
 	Writes            int // number of Set* calls reaching the backend
 	Fail              error
@@ -28,6 +29,8 @@ func (b *Backend) GetPanTilt() (float64, float64, error) { return b.Pan, b.Tilt,
 func (b *Backend) SetPanTilt(p, t float64) error { b.Writes++; b.Pan, b.Tilt = p, t; return b.Fail }
 func (b *Backend) SetZoom(z int) error           { b.Writes++; b.Zoom = z; return b.Fail }
 func (b *Backend) SetFocus(v int) error          { b.Writes++; b.Focus = v; return b.Fail }
+func (b *Backend) GetAutoFocus() (bool, error)   { return b.AutoFocus, b.Fail }
+func (b *Backend) SetAutoFocus(on bool) error    { b.Writes++; b.AutoFocus = on; return b.Fail }
 func (b *Backend) SetRoll(v int) error           { b.Writes++; b.Roll = v; return b.Fail }
 
 func (b *Backend) Info() (camera.Info, error) {

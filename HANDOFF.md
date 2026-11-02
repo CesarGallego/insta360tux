@@ -74,6 +74,33 @@ Los binarios están en `.gitignore`.
 
 - `camera/` (librería) + `cmd/insta360/` (CLI, `insta360 help-agent` para la referencia completa).
 - Backends: libusb (gousb, macOS/Linux, necesita `brew install pkgconf libusb`) y v4l2 (Linux, Go puro, prioridad 100).
-- Verificado en hardware: solo lectura (`list`, `info`, `get`) y un `set` sin cambio. **Movimiento real desde Go: sin probar.**
-- Sin probar: v4l2 en Linux real, escritura de foco/roll, rangos consultados a la cámara (ahora son valores por defecto).
+- Verificado en hardware: movimiento real desde Go (ver sección de pruebas de hardware abajo).
+- Sin probar: v4l2 en Linux real. (Movimiento, foco, roll y rangos reales: ver la sección de pruebas de hardware abajo.)
 - Pendiente: interceptor libusb para descifrar las XU (seguimiento IA, presets, privacidad).
+
+## Pruebas de hardware en macOS (2026-11-02, libusb, Photo Booth con vídeo activo)
+
+Método: antes/después con `ffmpeg -f avfoundation` (frames de la propia Link, que se puede abrir a
+la vez que Photo Booth) comparando imágenes; la cámara restaurada a pan -0.8, tilt -11.6, zoom 158,
+foco 0, roll 0, AF on.
+
+| Prueba | Resultado |
+|---|---|
+| `set` pan/tilt +-10 | OK, el encuadre cambia (pan+: escena a la izquierda; tilt+: mira al techo) |
+| `set --zoom 200`, `zoom N` | OK, GET_CUR coincide e imagen más cerrada |
+| `move`, `center`, `home` | OK (el frame tras `center` mira al techo: tilt 0) |
+| `--clamp` | OK (`zoom 999` -> 400); no se llevó pan al tope por seguridad |
+| fuera de rango / NaN | exit 4 con JSON de error (pan 500, zoom 999, tilt -91, nan) |
+| `--dry-run` | OK: `get` y SSIM de frames sin cambios |
+| foco | **Bug encontrado**: con AF activo el SET hace STALL (exit 5). Corregido: `SetFocus` apaga AF; `--autofocus[=bool]`. Foco 50 vs 100 cambia la nitidez (visible) |
+| roll -100..100 | Se acepta y se lee con signo. Ver nota abajo sobre confirmación visual |
+| rangos reales | `info` consulta GET_MIN/MAX/RES/DEF (nuevo `RangeQuerier`, `ranges_source`) y coinciden con los valores por defecto |
+| PANTILT_RELATIVE y otros selectores estándar relativos | STALL: no soportados |
+| `--device` `1.10`, `2e1a:4c01` (mayúsculas también), selector inexistente | OK / exit 3 |
+| claim de la interfaz 0 | `claim_interface` falla con ACCESS en macOS pero el control funciona con Photo Booth abierto, sin error de ocupado; llamadas CLI repetidas en bucle OK |
+
+Sin verificar: movimiento sin stream de vídeo (no se cerró Photo Booth); selector por número de serie
+(la cámara no expone serial); sub-grado en pan/tilt (RES=1°); extremos +-145 / -90..100 físicos;
+efecto visual exacto de roll (confirmación visual por el usuario pendiente); v4l2 en Linux real
+(en Linux habrá que apagar `focus_automatic_continuous` antes de `focus_absolute`, el backend v4l2
+no lo hace aún); las extension units siguen sin descifrar; PU (brillo, etc.) sin escribir.

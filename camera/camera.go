@@ -21,7 +21,39 @@ func Wrap(b Backend, opts Options) (*Camera, error) {
 	if err != nil {
 		return nil, err
 	}
+	applyQueriedLimits(b, &info)
 	return &Camera{b: b, info: info, opts: opts}, nil
+}
+
+// applyQueriedLimits replaces the ranges in info by the device's own when the
+// backend can query them, and records where the ranges come from.
+func applyQueriedLimits(b Backend, info *Info) {
+	if info.RangesSource == RangesFromDevice {
+		return // backend already filled real ranges
+	}
+	info.RangesSource = RangesDefault
+	q, ok := b.(RangeQuerier)
+	if !ok {
+		return
+	}
+	l, err := q.QueryLimits()
+	if err != nil {
+		info.RangesWarning = "querying device ranges failed, using defaults: " + err.Error()
+		return
+	}
+	info.PanRange, info.TiltRange, info.ZoomRange = l.Pan.Range(), l.Tilt.Range(), l.Zoom.Range()
+	info.Controls = map[string]ControlLimits{"pan": l.Pan, "tilt": l.Tilt, "zoom": l.Zoom}
+	if l.Focus != nil {
+		r := l.Focus.Range()
+		info.Focus = &r
+		info.Controls["focus"] = *l.Focus
+	}
+	if l.Roll != nil {
+		r := l.Roll.Range()
+		info.Roll = &r
+		info.Controls["roll"] = *l.Roll
+	}
+	info.RangesSource = RangesFromDevice
 }
 
 // Close releases the device.
@@ -65,6 +97,8 @@ func (c *Camera) SetPanTilt(pan, tilt float64) (Result[PanTilt], error) {
 	if err != nil {
 		return res, err
 	}
+	// Quantize to the wire unit (1/3600 deg) so results do not carry float noise.
+	p, t = ArcSecToDeg(DegToArcSec(p)), ArcSecToDeg(DegToArcSec(t))
 	res.Applied, res.Clamped = PanTilt{p, t}, cp || ct
 	if c.opts.DryRun {
 		return res, nil
@@ -138,6 +172,28 @@ func (c *Camera) SetRoll(v int) (Result[int], error) {
 		return Result[int]{}, ErrUnsupported
 	}
 	return setInt(c, "roll", *c.info.Roll, v, r.SetRoll)
+}
+
+// GetAutoFocus reports whether autofocus is on; ErrUnsupported if unavailable.
+func (c *Camera) GetAutoFocus() (bool, error) {
+	f, ok := c.b.(AutoFocusController)
+	if !ok {
+		return false, ErrUnsupported
+	}
+	return f.GetAutoFocus()
+}
+
+// SetAutoFocus switches autofocus on or off (nothing is sent in dry-run).
+func (c *Camera) SetAutoFocus(on bool) (Result[bool], error) {
+	res := Result[bool]{Requested: on, Applied: on, DryRun: c.opts.DryRun}
+	f, ok := c.b.(AutoFocusController)
+	if !ok {
+		return res, ErrUnsupported
+	}
+	if c.opts.DryRun {
+		return res, nil
+	}
+	return res, f.SetAutoFocus(on)
 }
 
 func setInt(c *Camera, name string, rg Range, v int, write func(int) error) (Result[int], error) {

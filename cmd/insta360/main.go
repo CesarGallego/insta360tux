@@ -220,6 +220,7 @@ type cmdFlags struct {
 	zoom, focus, roll int
 	delta             int
 	all, zoomReset    bool
+	autofocus         bool
 	set               map[string]bool
 	args              []string
 }
@@ -235,6 +236,7 @@ func declareCmdFlags(fs *flag.FlagSet, name string) *cmdFlags {
 		fs.IntVar(&f.zoom, "zoom", 0, "")
 		fs.IntVar(&f.focus, "focus", 0, "")
 		fs.IntVar(&f.roll, "roll", 0, "")
+		fs.BoolVar(&f.autofocus, "autofocus", false, "")
 	case "move":
 		fs.Float64Var(&f.pan, "pan", 0, "")
 		fs.Float64Var(&f.tilt, "tilt", 0, "")
@@ -348,9 +350,12 @@ func (a *app) cmdList() int {
 
 func (a *app) cmdInfo(cam *camera.Camera) int {
 	in := cam.Info()
-	human := fmt.Sprintf("%s (%s) backend=%s serial=%s\nid %04x:%04x bus %d addr %d\npan  %g..%g deg\ntilt %g..%g deg\nzoom %g..%g (100 = 1.0x)",
+	human := fmt.Sprintf("%s (%s) backend=%s serial=%s\nid %04x:%04x bus %d addr %d\npan  %g..%g deg\ntilt %g..%g deg\nzoom %g..%g (100 = 1.0x)\nranges: %s",
 		in.Name, in.Manufacturer, in.Backend, in.Serial, in.VendorID, in.ProductID, in.Bus, in.Address,
-		in.PanRange.Min, in.PanRange.Max, in.TiltRange.Min, in.TiltRange.Max, in.ZoomRange.Min, in.ZoomRange.Max)
+		in.PanRange.Min, in.PanRange.Max, in.TiltRange.Min, in.TiltRange.Max, in.ZoomRange.Min, in.ZoomRange.Max, in.RangesSource)
+	if in.RangesWarning != "" {
+		human += "\nwarning: " + in.RangesWarning
+	}
 	a.emit(in, human)
 	return exitOK
 }
@@ -373,6 +378,10 @@ func (a *app) cmdGet(cam *camera.Camera, f *cmdFlags) int {
 		} else {
 			out["focus"] = v
 			human += fmt.Sprintf("\nfocus=%d", v)
+		}
+		if v, err := cam.GetAutoFocus(); err == nil {
+			out["autofocus"] = v
+			human += fmt.Sprintf("\nautofocus=%v", v)
 		}
 		if v, err := cam.GetRoll(); err != nil {
 			warns = append(warns, "roll: "+err.Error())
@@ -412,8 +421,8 @@ func (a *app) cmdSet(cam *camera.Camera, f *cmdFlags, relative bool) int {
 	if len(f.args) > 0 {
 		return a.fail(exitUsage, "usage", fmt.Errorf("unexpected argument %q", f.args[0]))
 	}
-	if !(f.set["pan"] || f.set["tilt"] || f.set["zoom"] || f.set["focus"] || f.set["roll"]) {
-		return a.fail(exitUsage, "usage", errors.New("nothing to do: pass at least one of --pan --tilt --zoom (--focus --roll for set)"))
+	if !(f.set["pan"] || f.set["tilt"] || f.set["zoom"] || f.set["focus"] || f.set["roll"] || f.set["autofocus"]) {
+		return a.fail(exitUsage, "usage", errors.New("nothing to do: pass at least one of --pan --tilt --zoom (--focus --roll --autofocus for set)"))
 	}
 	if f.set["pan"] || f.set["tilt"] {
 		cur, err := cam.GetPanTilt()
@@ -455,6 +464,14 @@ func (a *app) cmdSet(cam *camera.Camera, f *cmdFlags, relative bool) int {
 		}
 		out["zoom"] = r
 		lines = append(lines, fmtInt("zoom", r))
+	}
+	if f.set["autofocus"] {
+		r, err := cam.SetAutoFocus(f.autofocus)
+		if err != nil {
+			return a.failErr(err)
+		}
+		out["autofocus"] = r
+		lines = append(lines, fmt.Sprintf("autofocus=%v%s", r.Applied, flags(false, r.DryRun)))
 	}
 	if f.set["focus"] {
 		r, err := cam.SetFocus(f.focus)

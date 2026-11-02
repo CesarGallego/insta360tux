@@ -134,7 +134,7 @@ func run2(t *testing.T, args ...string) (int, string, string) {
 func TestHelpCoversCommandsAndExitCodes(t *testing.T) {
 	_, top, _ := do(t, "--help")
 	_, agent, _ := do(t, "help-agent")
-	for _, s := range []string{"video stream", "COMMANDED", "DEFAULTS", "any order", `"error"`} {
+	for _, s := range []string{"video stream", "COMMANDED", "GET_MIN", "any order", `"error"`} {
 		if !strings.Contains(top, s) {
 			t.Errorf("--help missing %q", s)
 		}

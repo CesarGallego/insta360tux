@@ -206,6 +206,7 @@ func (b *v4l2Backend) Info() (Info, error) {
 	if r, ok := b.rng[v4l2CIDFocusAbsolute]; ok {
 		in.Focus = &r
 	}
+	in.RangesSource = RangesFromDevice // VIDIOC_QUERYCTRL at Open
 	return in, nil
 }
 

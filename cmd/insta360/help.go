@@ -63,15 +63,22 @@ UNITS
 IMPORTANT CAVEATS (read before automating)
   1. The gimbal has only been observed to MOVE while a video stream is active (another app,
      e.g. a camera viewer or video call, is using the camera). Without a stream the commands
-     succeed but the gimbal may stay still. This is a hypothesis, not proven.
+     succeed but the gimbal may stay still. This is a hypothesis, not proven. With a stream
+     active, absolute pan/tilt/zoom moves were verified on real hardware (camera frames
+     changed accordingly). Positive tilt looks up; positive pan shifts the scene left in the image.
   2. 'get' returns the LAST COMMANDED value held by the camera, NOT the measured position.
      A successful 'set' followed by 'get' proves the command was accepted, not that the
      gimbal arrived. Do not use 'get' as feedback that movement completed.
   3. Relative moves ('move') are computed client-side from the commanded value in (2).
-  4. Ranges (pan -145..145, tilt -90..100, zoom 100..400, ...) are built-in DEFAULTS for the
-     Insta360 Link, not queried from the camera. 'info' prints these defaults.
-  5. Native UVC PANTILT_RELATIVE is not supported by the camera; focus/roll are listed in
-     the descriptor but unverified.
+  4. Ranges are queried from the camera (UVC GET_MIN/GET_MAX) by the libusb and v4l2 backends;
+     'info' reports "ranges_source":"device" (or "default" plus "ranges_warning" if the query
+     failed). Real Insta360 Link values: pan -145..145, tilt -90..100, zoom 100..400,
+     focus 0..100, roll -100..100. The pan/tilt step reported by the camera is 1 degree.
+  5. Native UVC PANTILT_RELATIVE (and zoom/roll relative) are NOT supported by the camera
+     (verified: requests stall); 'move' is emulated client-side.
+  6. Manual focus is rejected by the camera while autofocus is on. 'set --focus' therefore
+     switches autofocus off first (libusb backend); 'set --autofocus=true' turns it back on.
+     Roll is a signed value; negative values are accepted and read back correctly.
 
 EXIT CODES
 ` + exitCodesTable + `
@@ -112,8 +119,10 @@ var docs = []cmdDoc{
 		Output: `JSON: {"backend":"libusb","name":"Insta360 Link","manufacturer":"Insta360","serial":"...",
   "vendor_id":11802,"product_id":19457,"bus":20,"address":4,
   "pan_range_deg":{"min":-145,"max":145},"tilt_range_deg":{"min":-90,"max":100},
-  "zoom_range":{"min":100,"max":400},"focus_range":{"min":0,"max":100},"roll_range":{"min":-100,"max":100}}
-  focus_range / roll_range are absent when unsupported.`,
+  "zoom_range":{"min":100,"max":400},"focus_range":{"min":0,"max":100},"roll_range":{"min":-100,"max":100},
+  "ranges_source":"device","controls":{"zoom":{"min":100,"max":400,"res":1,"def":100},...}}
+  focus_range / roll_range are absent when unsupported. "controls" (min,max,res,def per
+  control; pan/tilt in degrees) is present when ranges_source is "device".`,
 		Examples: "insta360 info\ninsta360 --backend libusb --device 2e1a:4c01 info",
 	},
 	{
@@ -122,23 +131,24 @@ var docs = []cmdDoc{
 		Usage:   "insta360 get [--all]",
 		Flags:   "--all   also read focus and roll (best effort; failures are reported in \"warnings\", not as errors)",
 		Output: `JSON: {"pan":10,"tilt":-5,"zoom":150,"zoom_factor":1.5,"commanded_not_measured":true}
-  pan/tilt in degrees; zoom raw 100..400. With --all adds "focus" and "roll" (integers) and
-  possibly "warnings":["focus: ..."].`,
+  pan/tilt in degrees; zoom raw 100..400. With --all adds "focus", "roll" (integers),
+  "autofocus" (bool, when supported) and possibly "warnings":["focus: ..."].`,
 		Examples: "insta360 get\ninsta360 get --all --json=false",
 	},
 	{
 		Name:    "set",
 		Summary: "Move to absolute pan/tilt/zoom. Only the flags you pass are changed; omitted axes keep their current commanded value (passing only --pan keeps tilt).",
-		Usage:   "insta360 set [--pan DEG] [--tilt DEG] [--zoom RAW] [--focus RAW] [--roll RAW]",
+		Usage:   "insta360 set [--pan DEG] [--tilt DEG] [--zoom RAW] [--focus RAW] [--roll RAW] [--autofocus[=BOOL]]",
 		Flags: `--pan DEG    absolute pan in degrees, -145..145 (positive/negative direction per camera convention)
 --tilt DEG   absolute tilt in degrees, -90..100
 --zoom RAW   absolute zoom, integer 100..400 (100 = 1.0x)
---focus RAW  absolute focus, integer 0..100 (unverified on hardware)
---roll RAW   absolute roll, integer -100..100 (unverified on hardware)
+--focus RAW  absolute focus, integer 0..100 (turns autofocus off first)
+--roll RAW   absolute roll, integer -100..100 (signed)
+--autofocus[=BOOL]  switch autofocus on/off ("--autofocus=false" to disable)
 At least one of these is required (else exit 2). Values outside the range exit 4 unless --clamp.`,
 		Output: `JSON: {"pan_tilt":{"requested":{"pan":20,"tilt":0},"applied":{"pan":20,"tilt":0},"clamped":false,"dry_run":false},
   "zoom":{"requested":150,"applied":150,"clamped":false,"dry_run":false}}
-  Only the sections for axes you set are present ("pan_tilt", "zoom", "focus", "roll").
+  Only the sections for axes you set are present ("pan_tilt", "zoom", "focus", "roll", "autofocus").
   "applied" is what was (or with --dry-run would be) sent. Nothing is read back after the write.`,
 		Examples: "insta360 set --pan 30 --tilt -10\ninsta360 set --zoom 200\ninsta360 set --pan 500 --clamp      # clamped to 145\ninsta360 --dry-run set --pan 10    # validate only",
 	},
