@@ -76,6 +76,29 @@ Libusb backend only on macOS/Linux; the v4l2 backend has an untested implementat
 The official app's extra handshake (unit 9 selectors `0x14`/`0x15`) is **not** needed.
 Details and verified/unverified lists: PROTOCOL.md.
 
+### Features, gestures, tracking speed, anti-flicker
+
+```sh
+insta360 feature                      # list every feature with its state
+insta360 feature hdr on               # hdr | gestures | onetouch-tracking | auto-tracking | smart-framing | vertical-lock
+insta360 gestures --enable on --tracking on --zoom off --whiteboard off
+insta360 tracking-speed quick         # quick | normal | slow
+insta360 flicker 60                   # 50 | 60
+```
+
+All of them are included in `get --all`. Features are bits of unit 9 selector `0x1b`, always read-modify-written
+(unknown bits such as `0x0020` are preserved). They need no video stream, but physical effects do.
+Caveats: `vertical-lock` rotates the image 90 degrees and re-poses the gimbal (set pan/tilt again afterwards);
+`auto-tracking` and `onetouch-tracking` make the camera move by itself. The roll control (`set --roll`) is the
+app's "Ajuste horizontal" (horizon leveling).
+
+Verified on hardware (macOS/libusb, with a stream): set + readback + restore of every bit, gesture mask bits,
+tracking speed and 50/60 Hz; vertical-lock visibly rotates the image. NOT verified: the physical effect of
+auto-tracking / one-touch / gestures (needs a person in frame / making gestures), the gesture master switch
+being bit `0x010` (hypothesis from the capture), and everything on Linux.
+There is no command for privacy/sleep (the camera sleeps by itself when no stream is open), resolution/fps or
+presets: see PROTOCOL.md.
+
 ## Library
 
 ```go
@@ -106,6 +129,9 @@ Select a device with `/dev/videoN`, `2e1a:4c01`, `BUS.ADDR` or the serial; force
   `ffplay /dev/video0` or `v4l2-ctl -d /dev/video0 --stream-mmap --stream-count=0`.
 - Modes (`insta360 mode`) use `UVCIOC_CTRL_QUERY` on the unit 9 extension unit (no uvcvideo mapping needed);
   implemented but untested on real Linux. If it fails the command exits 5 or 7.
+- `--keep-stream [--resolution WxH --fps N --stream-hold DUR]` (v4l2 only) holds a capture stream (mmap + STREAMON,
+  frames discarded) while the command runs, so the camera moves without another app. Cross-compiled only: UNVERIFIED.
+- Features/gestures/tracking speed use `UVCIOC_CTRL_QUERY` and anti-flicker the standard V4L2 power line control (UNVERIFIED).
 - Build check: `GOOS=linux CGO_ENABLED=0 go build ./...`. Not yet tested on real Linux hardware.
 
 ## Development

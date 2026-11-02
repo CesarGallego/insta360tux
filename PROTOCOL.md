@@ -164,10 +164,40 @@ Experimentos propios (camara en la pose habitual, con la app abierta y la vista 
 - Escribir `01 00*9` en 10/0x0f (privacidad, segun el desensamblado): el SET se acepta (10 B), pero un GET
   posterior devuelve ceros y **la imagen no cambia** (la camara no se tapo). El mecanismo de lectura/efecto de la
   unit 10 queda por aclarar: probablemente hace falta la secuencia exacta de la app. Restaurado a ceros.
-- Por eso **no se ha anadido ningun subcomando de CLI** para estas funciones: no hay correlacion segura.
 
-Pendiente: sesion guiada de captura con la UI (ver `tools/interpose/README.md`) para fijar con certeza
-seguimiento IA, privacidad, presets, gestos, HDR y reposo.
+#### Sesion guiada de captura con la UI (VERIFICADO: una accion de UI confirmada por el usuario por cada MARK del log)
+
+Estado base en la app: `0x0220`. Todo son control transfers UVC XU, lectura-modificacion-escritura.
+
+| Unit / sel | Tamano | Funcion | Estado |
+|---|---|---|---|
+| 9 / 0x1b bit `0x004` | u16 LE | HDR | VERIFICADO (captura + hardware) |
+| 9 / 0x1b bit `0x080` | | seguimiento IA de un toque (interruptor) | VERIFICADO el bit; efecto fisico no comprobado |
+| 9 / 0x1b bit `0x100` | | seguimiento automatico (sigue cuando se apunta el gimbal a mano) | VERIFICADO el bit; efecto no observado (sin cara en la imagen al probar) |
+| 9 / 0x1b bit `0x200` | | ajuste inteligente (activo por defecto) | VERIFICADO |
+| 9 / 0x1b bit `0x400` | | bloqueo de toma vertical | VERIFICADO en hardware con stream: la imagen gira 90 grados; la camara pasa a tilt 0 y al desactivar queda en pan 0 tilt 0 (hay que reponer la pose) |
+| 9 / 0x1b bit `0x020` | | sin identificar, siempre activo | se conserva siempre |
+| 9 / 0x1b bit `0x010` | | interruptor maestro de gestos | HIPOTESIS consistente con el log: la app lo puso a 0 al apagar los gestos (`0x0230` -> `0x0220`) y hardware: bit aceptado y leido; efecto fisico (reconocer gestos) no comprobado |
+| 9 / 0x05 | 1 B | mascara de gestos: `0x02` seguimiento, `0x04` zoom, `0x08` pizarra | VERIFICADO en captura y escritura/lectura en hardware (efecto fisico no comprobado) |
+| 9 / 0x12 | 1 B | velocidad de seguimiento: `00` rapido, `01` normal ("ordinario"), `02` lento | VERIFICADO en captura y lectura/escritura en hardware |
+| 5 / 0x05 | 1 B | frecuencia de red (PU_POWER_LINE_FREQUENCY estandar UVC): `01`=50 Hz, `02`=60 Hz (`00` = desactivado, `03` = auto: no se exponen) | VERIFICADO en captura y hardware |
+| 1 / 0x0f | s16 | roll estandar (-100..100) = "Ajuste horizontal" (nivelado del horizonte) de la app | VERIFICADO |
+| 9 / 0x1c | 10 B | solo lectura: resolucion/fps actual. 1920x1080@30 = `80070000 38040000 1e00`; 1280x720@60 = `00050000 d0020000 3c00` | VERIFICADO (informe, no se escribe) |
+
+Hallazgos NEGATIVOS (no existe comando XU):
+
+- **Privacidad / reposo**: no hay comando. La camara entra sola en privacidad (cabeza abajo, tilt ~ -83) cuando
+  no hay ningun stream de video abierto, y despierta y reencuadra al abrirse uno. Pan/tilt/zoom enviados sin
+  stream se recuerdan y se aplican al arrancar el stream. (Esto explica por que el `01 00*9` en unit 10/0x0f de
+  arriba no hacia nada.)
+- **Resolucion / fps**: no son un ajuste de la camara por XU; los fija el formato V4L2/UVC del stream (probe/commit).
+- **Presets**: viven en la app, no en la camara (la app solo manda `unit 11 sel 0x1b` = ff... al ir a uno).
+- Tras `vertical-lock` la pose vuelve a 0/0; tras `auto-tracking` activado el efecto fisico necesita una cara en la imagen (no probado).
+
+Implementado en la libreria (`camera/feature.go`) y CLI: `feature`, `gestures`, `tracking-speed`, `flicker`.
+En Linux, los backends v4l2 usan `UVCIOC_CTRL_QUERY` para las XU (SIN PROBAR) y `V4L2_CID_POWER_LINE_FREQUENCY`
+(0x00980918, mismos valores que UVC) para el anti-parpadeo (SIN PROBAR).
+`--keep-stream` (v4l2): mmap + `VIDIOC_STREAMON` en una goroutine para que la camara tenga un stream mientras se mueve; solo compilado, SIN PROBAR en hardware.
 
 ## Herramientas (`tools/`)
 

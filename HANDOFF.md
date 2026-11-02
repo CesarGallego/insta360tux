@@ -117,3 +117,14 @@ no lo hace aún); las extension units siguen sin descifrar; PU (brillo, etc.) si
 `insta360 mode [normal|tracking|whiteboard|overhead|desk]`, `camera.ModeController` (libusb, fake y v4l2 via
 `UVCIOC_CTRL_QUERY` sin probar). Verificado en hardware sin la app oficial; no hace falta el handshake 0x14/0x15.
 `set/move --normal` suelta el modo antes de mover. Detalle y pendientes en `PROTOCOL.md` (seccion "Modos de la camara").
+
+## Features, gestos, velocidad y anti-parpadeo (2026-11-02)
+
+- `camera/feature.go` (FeatureController, GestureController, TrackingSpeedController, PowerLineController) en libusb, fake y
+  v4l2 (sin probar); CLI `feature`, `gestures`, `tracking-speed`, `flicker`, todo en `get --all` y `help-agent`.
+- VERIFICADO en hardware (macOS, Photo Booth con stream): escribir, leer y restaurar cada bit (HDR, 0x080, 0x100, 0x200, 0x010,
+  0x400), mascara de gestos, velocidad, 50/60 Hz. `vertical-lock` gira la imagen 90 grados y deja la pose en 0/0 al apagarlo.
+- NO verificado: efecto fisico de seguimiento automatico / un toque / gestos (hace falta una persona en imagen); que 0x010 sea el
+  interruptor maestro de gestos (hipotesis); todo lo de Linux incl. `--keep-stream` (`camera/stream_linux.go`, solo compilado).
+- Hallazgos negativos (privacidad, resolucion/fps, presets) y tabla de selectores en `PROTOCOL.md`.
+- Estado final de la camara: 0x0220, gestos 0, velocidad normal, 50 Hz, roll 0, modo normal, pan -0.8 tilt -11.6 zoom 158.
