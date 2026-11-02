@@ -111,3 +111,9 @@ no lo hace aún); las extension units siguen sin descifrar; PU (brillo, etc.) si
   (gitignored) con dylib que registra todas las peticiones de control (IOKit). Funciona con SIP activo.
 - Hallazgos y mapa selector->funcion en `PROTOCOL.md`. Falta una sesion guiada con la UI (no se pudo pulsar
   botones: sin permiso de accesibilidad / computer-use). Sin subcomandos de CLI nuevos por falta de correlacion segura.
+
+## Modos de la camara (2026-11-02)
+
+`insta360 mode [normal|tracking|whiteboard|overhead|desk]`, `camera.ModeController` (libusb, fake y v4l2 via
+`UVCIOC_CTRL_QUERY` sin probar). Verificado en hardware sin la app oficial; no hace falta el handshake 0x14/0x15.
+`set/move --normal` suelta el modo antes de mover. Detalle y pendientes en `PROTOCOL.md` (seccion "Modos de la camara").

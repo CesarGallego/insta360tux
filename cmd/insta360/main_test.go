@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/CesarGallego/insta360tux/camera"
+	"github.com/CesarGallego/insta360tux/camera/fake"
 	"strings"
 	"testing"
 )
@@ -165,5 +167,50 @@ func TestHelpCoversCommandsAndExitCodes(t *testing.T) {
 		if !strings.Contains(agent, "`"+c+"`") {
 			t.Errorf("error code %s not documented", c)
 		}
+	}
+}
+
+func TestModeCommand(t *testing.T) {
+	code, out, _ := do(t, "mode")
+	if code != 0 || !strings.Contains(out, `"mode":"normal"`) {
+		t.Fatalf("get: %d %q", code, out)
+	}
+	if code, out, _ := do(t, "mode", "overhead"); code != 0 || !strings.Contains(out, `"applied":"overhead"`) {
+		t.Fatalf("set: %d %q", code, out)
+	}
+	if code, _, _ := do(t, "mode", "disco"); code != exitUsage {
+		t.Errorf("unknown mode: %d", code)
+	}
+	if code, _, _ := do(t, "mode", "a", "b"); code != exitUsage {
+		t.Errorf("two args: %d", code)
+	}
+	if code, out, _ := do(t, "--dry-run", "mode", "tracking"); code != 0 || !strings.Contains(out, `"dry_run":true`) {
+		t.Errorf("dry-run: %d %q", code, out)
+	}
+	if code, out, _ := do(t, "mode", "--help"); code != 0 || !strings.Contains(out, "QR") {
+		t.Errorf("help: %d", code)
+	}
+}
+
+func TestSetWarnsOrReleasesMode(t *testing.T) {
+	shared := fake.New()
+	shared.Mode = camera.ModeTracking
+	camera.Register(camera.Factory{Name: "fakemode", Explicit: true, New: func() camera.Backend { return shared }})
+	runIt := func(args ...string) (int, string, string) {
+		var o, e bytes.Buffer
+		code := run(append([]string{"--backend", "fakemode"}, args...), &o, &e, false)
+		return code, o.String(), e.String()
+	}
+	code, out, errs := runIt("set", "--pan", "10")
+	if code != 0 || !strings.Contains(errs, "warning") || !strings.Contains(out, `"warnings"`) || shared.Mode != camera.ModeTracking {
+		t.Errorf("warn: %d out=%q err=%q mode=%s", code, out, errs, shared.Mode)
+	}
+	code, out, _ = runIt("set", "--pan", "10", "--normal")
+	if code != 0 || shared.Mode != camera.ModeNormal || shared.Pan != 10 || !strings.Contains(out, `"mode"`) {
+		t.Errorf("release: %d out=%q mode=%s pan=%v", code, out, shared.Mode, shared.Pan)
+	}
+	shared.Mode = camera.ModeDesk
+	if _, out, _ := runIt("get", "--all"); !strings.Contains(out, `"mode":"desk"`) {
+		t.Errorf("get --all lacks mode: %q", out)
 	}
 }

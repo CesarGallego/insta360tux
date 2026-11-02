@@ -29,6 +29,8 @@ const (
 	selPanTiltA = 0x0D
 	selRollAbs  = 0x0F
 	selFocusAut = 0x08 // FOCUS_AUTO_CONTROL, 1 byte
+	unitXU9     = 9    // proprietary extension unit 9
+	selXUMode   = 0x02 // unit 9: 52 byte status/mode block
 )
 
 func init() {
@@ -159,11 +161,15 @@ func (b *libusbBackend) get(op string, sel uint16, n int) ([]byte, error) {
 }
 
 func (b *libusbBackend) getReq(op string, req uint8, sel uint16, n int) ([]byte, error) {
+	return b.getUnit(op, unitCamera, req, sel, n)
+}
+
+func (b *libusbBackend) getUnit(op string, unit uint16, req uint8, sel uint16, n int) ([]byte, error) {
 	if b.dev == nil {
 		return nil, ErrNoDevice
 	}
 	buf := make([]byte, n)
-	got, err := b.dev.Control(typeGetCls, req, sel<<8, unitCamera<<8|ifaceCtl, buf)
+	got, err := b.dev.Control(typeGetCls, req, sel<<8, unit<<8|ifaceCtl, buf)
 	if err != nil {
 		return nil, mapErr(op, err)
 	}
@@ -174,10 +180,14 @@ func (b *libusbBackend) getReq(op string, req uint8, sel uint16, n int) ([]byte,
 }
 
 func (b *libusbBackend) set(op string, sel uint16, data []byte) error {
+	return b.setUnit(op, unitCamera, sel, data)
+}
+
+func (b *libusbBackend) setUnit(op string, unit uint16, sel uint16, data []byte) error {
 	if b.dev == nil {
 		return ErrNoDevice
 	}
-	got, err := b.dev.Control(typeSetCls, reqSetCur, sel<<8, unitCamera<<8|ifaceCtl, data)
+	got, err := b.dev.Control(typeSetCls, reqSetCur, sel<<8, unit<<8|ifaceCtl, data)
 	if err != nil {
 		return mapErr(op, err)
 	}
@@ -257,6 +267,25 @@ func (b *libusbBackend) QueryLimits() (Limits, error) {
 	return QueryUVCLimits(func(req uint8, sel uint16, n int) ([]byte, error) {
 		return b.getReq(fmt.Sprintf("GET 0x%02X sel 0x%02X", req, sel), req, sel, n)
 	})
+}
+
+// GetMode reads the camera mode (byte 0 of unit 9 selector 0x02).
+func (b *libusbBackend) GetMode() (Mode, error) {
+	d, err := b.getUnit("GET mode", unitXU9, reqGetCur, selXUMode, ModeBlockLen)
+	if err != nil {
+		return "", err
+	}
+	return DecodeModeBlock(d)
+}
+
+// SetMode writes the 52 byte block the official app writes. No handshake
+// (unit 9 selectors 0x14/0x15) is needed: verified on hardware.
+func (b *libusbBackend) SetMode(m Mode) error {
+	d, err := EncodeModeBlock(m)
+	if err != nil {
+		return err
+	}
+	return b.setUnit("SET mode", unitXU9, selXUMode, d)
 }
 
 // Roll is a signed 16-bit value on the wire.

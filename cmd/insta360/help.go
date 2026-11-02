@@ -41,6 +41,7 @@ COMMANDS
   move        move relative to the current position
   center      return to pan=0 tilt=0 (alias: home)
   zoom        read or set zoom only
+  mode        read or set the camera mode (normal|tracking|whiteboard|overhead|desk)
   help-agent  print the complete reference as one Markdown document
   version     print version
 
@@ -79,6 +80,10 @@ IMPORTANT CAVEATS (read before automating)
   6. Manual focus is rejected by the camera while autofocus is on. 'set --focus' therefore
      switches autofocus off first (libusb backend); 'set --autofocus=true' turns it back on.
      Roll is a signed value; negative values are accepted and read back correctly.
+
+  7. Modes: besides normal, the camera has special modes that move the gimbal ON THEIR OWN
+     (tracking, whiteboard, overhead, desk). While one is active, 'set'/'move' of pan/tilt is
+     overridden or ignored. 'set --normal' switches to mode normal first. See 'insta360 mode --help'.
 
 EXIT CODES
 ` + exitCodesTable + `
@@ -129,10 +134,10 @@ var docs = []cmdDoc{
 		Name:    "get",
 		Summary: "Read pan/tilt/zoom. Values are what was last COMMANDED, not the measured position.",
 		Usage:   "insta360 get [--all]",
-		Flags:   "--all   also read focus and roll (best effort; failures are reported in \"warnings\", not as errors)",
+		Flags:   "--all   also read focus, roll, autofocus and mode (best effort; failures are reported in \"warnings\", not as errors)",
 		Output: `JSON: {"pan":10,"tilt":-5,"zoom":150,"zoom_factor":1.5,"commanded_not_measured":true}
   pan/tilt in degrees; zoom raw 100..400. With --all adds "focus", "roll" (integers),
-  "autofocus" (bool, when supported) and possibly "warnings":["focus: ..."].`,
+  "autofocus" (bool, when supported), "mode" (string, when supported) and possibly "warnings":["focus: ..."].`,
 		Examples: "insta360 get\ninsta360 get --all --json=false",
 	},
 	{
@@ -145,6 +150,9 @@ var docs = []cmdDoc{
 --focus RAW  absolute focus, integer 0..100 (turns autofocus off first)
 --roll RAW   absolute roll, integer -100..100 (signed)
 --autofocus[=BOOL]  switch autofocus on/off ("--autofocus=false" to disable)
+--normal (alias --release)  if the camera is in a special mode (see 'mode'), switch to 'normal'
+             first and wait 1.5 s. Without it, a warning is printed (stderr, and "warnings" in the JSON)
+             when pan/tilt/zoom are set while the mode is not normal, because tracking fights the move.
 At least one of these is required (else exit 2). Values outside the range exit 4 unless --clamp.`,
 		Output: `JSON: {"pan_tilt":{"requested":{"pan":20,"tilt":0},"applied":{"pan":20,"tilt":0},"clamped":false,"dry_run":false},
   "zoom":{"requested":150,"applied":150,"clamped":false,"dry_run":false}}
@@ -153,12 +161,23 @@ At least one of these is required (else exit 2). Values outside the range exit 4
 		Examples: "insta360 set --pan 30 --tilt -10\ninsta360 set --zoom 200\ninsta360 set --pan 500 --clamp      # clamped to 145\ninsta360 --dry-run set --pan 10    # validate only",
 	},
 	{
+		Name:    "mode",
+		Summary: "Read or set the camera mode. No argument = print the current mode. Modes: normal (default behaviour), tracking (AI face tracking: the camera MOVES BY ITSELF and fights any pan/tilt you set), whiteboard (zooms out looking for QR markers on the board; cancels itself back to normal after a few seconds if it finds none), overhead (tilts straight down, -90 deg), desk (desk view, frames the hands, tilt about -45 deg). Always finish with 'mode normal' to hand control back.",
+		Usage:   "insta360 mode [normal|tracking|whiteboard|overhead|desk]",
+		Flags:   "NAME   mode to set (case-insensitive). Unknown name: exit 2. Backends without extension-unit access (v4l2 if UVCIOC_CTRL_QUERY fails): exit 6.",
+		Output: `Read:  {"mode":"normal"}   (an unseen firmware value is reported as "unknown(0x02)")
+  Write: {"mode":{"requested":"overhead","applied":"overhead","clamped":false,"dry_run":false}}
+  Nothing is read back after a write; poll 'insta360 mode' (the camera needs ~1 s to settle).`,
+		Examples: "insta360 mode\ninsta360 mode overhead\ninsta360 mode normal\ninsta360 --dry-run mode tracking",
+	},
+	{
 		Name:    "move",
 		Summary: "Move relative to the current commanded position (client-side: reads, adds, writes). Flags are deltas.",
 		Usage:   "insta360 move [--pan DEG] [--tilt DEG] [--zoom RAW]",
 		Flags: `--pan DEG    delta pan in degrees (may be negative: --pan -5)
 --tilt DEG   delta tilt in degrees
 --zoom RAW   delta zoom in raw units (integer)
+--normal (alias --release)  switch to mode 'normal' first if in another mode (see 'set')
 The resulting absolute value must stay in range (exit 4, or clamp with --clamp).`,
 		Output:   `Same schema as 'set' (requested/applied are the resulting ABSOLUTE values).`,
 		Examples: "insta360 move --pan 5\ninsta360 move --pan -10 --tilt 3 --clamp\ninsta360 move --zoom 25",
@@ -189,6 +208,7 @@ var cmdExits = map[string]string{
 	"set":    "0 ok; 2 usage (no axis flag, bad number); 3 no camera; 4 out of range or NaN (unless --clamp); 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
 	"move":   "0 ok; 2 usage; 3 no camera; 4 resulting value out of range (unless --clamp); 5 transfer/timeout; 6 unavailable; 7 permission/busy",
 	"center": "0 ok; 2 usage; 3 no camera; 5 transfer/timeout; 6 unavailable; 7 permission/busy",
+	"mode":   "0 ok; 2 usage (unknown mode name); 3 no camera; 5 transfer/timeout; 6 unavailable/unsupported; 7 permission/busy",
 	"zoom":   "0 ok; 2 usage (not an integer, extra args); 3 no camera; 4 out of range (unless --clamp); 5 transfer/timeout; 6 unavailable; 7 permission/busy",
 }
 

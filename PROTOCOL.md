@@ -80,6 +80,37 @@ copian el valor al inicio de un buffer de ese tamano rellenado con ceros (p. ej.
 `01 00 .. 00`). Los metodos `SendCommand/SendCommand2/SendCommand3` de `MacUVCCameraExtendController`
 usan, respectivamente, **unit 9, 10 y 11**, con el selector como numero de comando.
 
+#### Modos de la camara (unit 9, sel 0x02, 52 B) - VERIFICADO en bus y en hardware sin la app oficial
+
+Sesion guiada con la app oficial (efectos fisicos confirmados por el usuario) y despues reproducido desde Go
+(libusb, macOS, firmware v1.4.8.8_build2, con Photo Booth en marcha; frames de ffmpeg/avfoundation antes y despues).
+
+SET_CUR de 52 B: **byte 0 = modo**, bytes 38..41, 42..45 y 46..49 = `1a 0e 00 00` (int32 LE 3610, significado
+desconocido, la app lo envia siempre; replicado tal cual), el resto ceros. GET_CUR del mismo selector (52 B):
+byte 0 = modo, byte 1 = estado (valores vistos 0x10, 0x03, 0x01; significado desconocido; no se escribe),
+int32 LE en off 38 = pan y off 42 = tilt (0.1 grado), u16 en off 50 = zoom. SET y GET difieren en el diseno.
+
+| Byte 0 | Modo | Efecto verificado |
+|---|---|---|
+| 0x00 | normal | control libre |
+| 0x01 | seguimiento IA | la camara busca una cara y mueve el pan/tilt sola (pan pasa de -0.8 a -5.8 en 6 s); con el modo activo, `PANTILT_ABSOLUTE` pan 15 queda anulado (pan volvio a ~-1.5) |
+| 0x04 | pizarra | zoom a 100 (se aleja) buscando marcadores QR; sin ellos vuelve solo a modo 0 en <11 s (el GET pasa a `00 03`) |
+| 0x05 | cenital | tilt -90 (GET: -900), zoom 100; imagen mirando hacia abajo |
+| 0x06 | vista de escritorio | tilt -45 (GET: -450), zoom 100; enmarca las manos/escritorio |
+| 0x02, 0x03 | ? | nunca vistos; no se prueban ni se pueden escribir desde la CLI |
+
+- **El handshake no hace falta**: los modos 1, 4, 5 y 6 funcionan escribiendo solo el bloque de 52 B en frio
+  (sin `GET 9/0x14` ni `OUT 9/0x15`). Lo que precede en la app al modo 1 es `GET 9/0x14` (240 B: lista de
+  float32 LE seguidos de ceros, p. ej. `0123daea 3e8edfa3 3e52e11d 3ef5bbc1 3e...`) y `OUT 9/0x15` (8 B =
+  dos float32: `0de5023f aa9aa83e` = 0.512, 0.329). HIPOTESIS: es la seleccion del objetivo a seguir
+  (`SetTrackObj`, centro normalizado) y no condiciona el modo; sin ella la camara busca una cara por si misma.
+- Salir de un modo con `00` deja a la camara moviendose un instante (hasta ~1 s); y tras overhead/desk/pizarra
+  el zoom queda en 100: el cliente debe reponerlo. Un `set` justo tras salir puede perder el zoom (visto con
+  0.5 s de espera; con 1.5 s funciona) y la CLI espera 1.5 s con `--normal`.
+- Sin verificar: modos 2 y 3; significado del byte 1 de estado y de las constantes 3610; efecto exacto del
+  `0x15`; si el modo persiste tras desconectar el USB; comportamiento de tracking con varias personas.
+- En Linux, el backend v4l2 implementa lo mismo con `UVCIOC_CTRL_QUERY` (unit 9, sel 0x02, 52 B), SIN PROBAR.
+
 #### Mapa selector -> funcion (HIPOTESIS: deducido del desensamblado de los nombres de metodo, sin confirmar en bus salvo lo marcado arriba)
 
 - **Unit 9**: 0x02 estado (`GetDeviceStatus`/video mode), 0x03 info, 0x04 version PTZ, 0x05/0x06 gestos

@@ -10,6 +10,7 @@ type Backend struct {
 	Pan, Tilt         float64
 	Zoom, Focus, Roll int
 	AutoFocus         bool
+	Mode              camera.Mode // zero value means normal
 	Opened            bool
 	Writes            int // number of Set* calls reaching the backend
 	Fail              error
@@ -32,6 +33,14 @@ func (b *Backend) SetFocus(v int) error          { b.Writes++; b.Focus = v; retu
 func (b *Backend) GetAutoFocus() (bool, error)   { return b.AutoFocus, b.Fail }
 func (b *Backend) SetAutoFocus(on bool) error    { b.Writes++; b.AutoFocus = on; return b.Fail }
 func (b *Backend) SetRoll(v int) error           { b.Writes++; b.Roll = v; return b.Fail }
+
+func (b *Backend) GetMode() (camera.Mode, error) {
+	if b.Mode == "" {
+		return camera.ModeNormal, b.Fail
+	}
+	return b.Mode, b.Fail
+}
+func (b *Backend) SetMode(m camera.Mode) error { b.Writes++; b.Mode = m; return b.Fail }
 
 func (b *Backend) Info() (camera.Info, error) {
 	f, r := camera.DefaultFocusRange, camera.DefaultRollRange

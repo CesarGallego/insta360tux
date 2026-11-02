@@ -277,3 +277,49 @@ func (b *v4l2Backend) SetFocus(v int) error {
 }
 
 var _ = strings.TrimSpace
+
+// uvcXUQuery is struct uvc_xu_control_query (linux/uvcvideo.h). Go's natural
+// alignment gives the same layout as C on 32 and 64-bit.
+type uvcXUQuery struct {
+	Unit, Selector, Query uint8
+	Size                  uint16
+	Data                  unsafe.Pointer
+}
+
+// UVCIOC_CTRL_QUERY = _IOWR('u', 0x21, struct uvc_xu_control_query)
+var uvciocCtrlQuery = ioc(iocRead|iocWrite, 'u', 0x21, unsafe.Sizeof(uvcXUQuery{}))
+
+func (b *v4l2Backend) xuQuery(op string, query, unit, sel uint8, data []byte) error {
+	if b.fd < 0 {
+		return ErrNoDevice
+	}
+	q := uvcXUQuery{Unit: unit, Selector: sel, Query: query, Size: uint16(len(data)), Data: unsafe.Pointer(&data[0])}
+	if err := ioctl(b.fd, uvciocCtrlQuery, unsafe.Pointer(&q)); err != nil {
+		return mapV4L2Err(op, err, query == uvcSetCur)
+	}
+	return nil
+}
+
+// GetMode reads the camera mode through the UVC extension-unit ioctl.
+// UNVERIFIED on real Linux hardware: same unit/selector as the libusb backend.
+func (b *v4l2Backend) GetMode() (Mode, error) {
+	d := make([]byte, ModeBlockLen)
+	if err := b.xuQuery("GET mode", uvcGetCur, 9, 0x02, d); err != nil {
+		return "", err
+	}
+	return DecodeModeBlock(d)
+}
+
+// SetMode writes the mode block through UVCIOC_CTRL_QUERY (UNVERIFIED on Linux).
+func (b *v4l2Backend) SetMode(m Mode) error {
+	d, err := EncodeModeBlock(m)
+	if err != nil {
+		return err
+	}
+	return b.xuQuery("SET mode", uvcSetCur, 9, 0x02, d)
+}
+
+const (
+	uvcSetCur = 0x01
+	uvcGetCur = 0x81
+)

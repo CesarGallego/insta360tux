@@ -221,6 +221,7 @@ type cmdFlags struct {
 	delta             int
 	all, zoomReset    bool
 	autofocus         bool
+	normal            bool
 	set               map[string]bool
 	args              []string
 }
@@ -237,10 +238,14 @@ func declareCmdFlags(fs *flag.FlagSet, name string) *cmdFlags {
 		fs.IntVar(&f.focus, "focus", 0, "")
 		fs.IntVar(&f.roll, "roll", 0, "")
 		fs.BoolVar(&f.autofocus, "autofocus", false, "")
+		fs.BoolVar(&f.normal, "normal", false, "")
+		fs.BoolVar(&f.normal, "release", false, "")
 	case "move":
 		fs.Float64Var(&f.pan, "pan", 0, "")
 		fs.Float64Var(&f.tilt, "tilt", 0, "")
 		fs.IntVar(&f.zoom, "zoom", 0, "")
+		fs.BoolVar(&f.normal, "normal", false, "")
+		fs.BoolVar(&f.normal, "release", false, "")
 	case "center":
 		fs.BoolVar(&f.zoomReset, "zoom", false, "")
 	case "zoom":
@@ -325,6 +330,8 @@ func (a *app) dispatch(name string, f *cmdFlags) int {
 		return a.cmdCenter(cam, f)
 	case "zoom":
 		return a.cmdZoom(cam, f)
+	case "mode":
+		return a.cmdMode(cam, f)
 	}
 	return a.fail(exitInternal, "internal", fmt.Errorf("unhandled command %s", name))
 }
@@ -389,6 +396,12 @@ func (a *app) cmdGet(cam *camera.Camera, f *cmdFlags) int {
 			out["roll"] = v
 			human += fmt.Sprintf("\nroll=%d", v)
 		}
+		if v, err := cam.GetMode(); err == nil {
+			out["mode"] = v
+			human += fmt.Sprintf("\nmode=%s", v)
+		} else if !errors.Is(err, camera.ErrUnsupported) {
+			warns = append(warns, "mode: "+err.Error())
+		}
 		if len(warns) > 0 {
 			out["warnings"] = warns
 			human += "\nwarnings: " + strings.Join(warns, "; ")
@@ -423,6 +436,27 @@ func (a *app) cmdSet(cam *camera.Camera, f *cmdFlags, relative bool) int {
 	}
 	if !(f.set["pan"] || f.set["tilt"] || f.set["zoom"] || f.set["focus"] || f.set["roll"] || f.set["autofocus"]) {
 		return a.fail(exitUsage, "usage", errors.New("nothing to do: pass at least one of --pan --tilt --zoom (--focus --roll --autofocus for set)"))
+	}
+	if f.set["pan"] || f.set["tilt"] || f.set["zoom"] {
+		cur, err := cam.GetMode()
+		switch {
+		case err != nil: // unsupported or unreadable: carry on without mode handling
+		case cur == camera.ModeNormal:
+		case f.normal:
+			r, err := cam.SetMode(camera.ModeNormal)
+			if err != nil {
+				return a.failErr(err)
+			}
+			out["mode"] = r
+			lines = append(lines, "mode="+string(r.Applied)+" (was "+string(cur)+")"+flags(false, r.DryRun))
+			if !r.DryRun {
+				time.Sleep(modeSettle)
+			}
+		default:
+			w := fmt.Sprintf("camera is in mode %q: it may move by itself or ignore pan/tilt/zoom; use --normal to switch to 'normal' first", cur)
+			out["warnings"] = []string{w}
+			fmt.Fprintln(a.err, "warning: "+w)
+		}
 	}
 	if f.set["pan"] || f.set["tilt"] {
 		cur, err := cam.GetPanTilt()
@@ -490,6 +524,33 @@ func (a *app) cmdSet(cam *camera.Camera, f *cmdFlags, relative bool) int {
 		lines = append(lines, fmtInt("roll", r))
 	}
 	a.emit(out, strings.Join(lines, "\n"))
+	return exitOK
+}
+
+// modeSettle is how long to wait after leaving a mode before moving the gimbal.
+const modeSettle = 1500 * time.Millisecond
+
+func (a *app) cmdMode(cam *camera.Camera, f *cmdFlags) int {
+	switch {
+	case len(f.args) > 1:
+		return a.fail(exitUsage, "usage", errors.New("mode takes at most one name"))
+	case len(f.args) == 1:
+		m, err := camera.ParseMode(f.args[0])
+		if err != nil {
+			return a.fail(exitUsage, "usage", err)
+		}
+		r, err := cam.SetMode(m)
+		if err != nil {
+			return a.failErr(err)
+		}
+		a.emit(map[string]any{"mode": r}, "mode="+string(r.Applied)+flags(false, r.DryRun))
+		return exitOK
+	}
+	m, err := cam.GetMode()
+	if err != nil {
+		return a.failErr(err)
+	}
+	a.emit(map[string]any{"mode": m}, "mode="+string(m))
 	return exitOK
 }
 
