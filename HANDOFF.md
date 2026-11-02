@@ -130,3 +130,22 @@ no lo hace aún); las extension units siguen sin descifrar; PU (brillo, etc.) si
 - NO verificado: gesto de pizarra con marcadores QR; todo lo de Linux incl. `--keep-stream` (`camera/stream_linux.go`, solo compilado).
 - Hallazgos negativos (privacidad, resolucion/fps, presets) y tabla de selectores en `PROTOCOL.md`.
 - Estado final de la camara: 0x0220, gestos 0, velocidad normal, 50 Hz, roll 0, modo normal, pan -0.8 tilt -11.6 zoom 158.
+
+## Lista de comprobaciones para la primera prueba en Linux
+
+Orden recomendado; marcar cada punto como verificado o roto en este fichero.
+
+1. **Build:** `go build ./...` (v4l2 no necesita cgo; libusb necesita `libusb-1.0-dev` y `pkg-config`). `go vet ./... && go test ./...`.
+2. **Permisos:** `ls -l /dev/video*`; añadir el usuario al grupo `video` o una regla udev para `2e1a:4c01`. Sin permisos debe salir exit 7.
+3. **Detección:** `insta360 list` y `insta360 info`. Comprobar que elige el backend `v4l2` (prioridad 100) y que `ranges_source` es `device`. Elegir el nodo de captura correcto (no el de metadatos).
+4. **Lectura sin stream:** `insta360 get --all`. Anotar qué controles faltan (roll no existe en V4L2; foco depende del driver).
+5. **Stream:** abrir un stream (`ffplay /dev/videoN` o `v4l2-ctl --stream-mmap`), luego `set --pan 10`, `set --tilt`, `set --zoom 200`, `move`, `center`. Verificar movimiento real, no solo la lectura.
+6. **Sin stream:** repetir `set --pan 40` sin stream y luego abrirlo: la cámara debe aplicar la pose al arrancar (en macOS lo hizo).
+7. **Foco:** `set --focus 50` falla con autofoco activo; el backend v4l2 aún no apaga `focus_automatic_continuous` antes (pendiente de implementar y probar).
+8. **Extension units por `UVCIOC_CTRL_QUERY`:** probar `mode tracking|normal|overhead|desk`, `feature hdr on|off`, `gestures`, `tracking-speed`. Verificar que `uvcvideo` acepta las XU 9/10/11 (puede requerir un mapeo de controles dinámico o `UVCIOC_CTRL_MAP`). Restaurar: máscara `0x0220`, gestos 0, velocidad normal, modo normal.
+9. **Antiparpadeo:** `flicker 60` y `flicker 50` (control V4L2 estándar).
+10. **`--keep-stream`:** `set --pan 20 --keep-stream --resolution 1280x720 --fps 30`; comprobar que el gimbal se mueve con él y que se suelta al terminar. Verificar el reintento de `DQBUF` (EAGAIN).
+11. **Backend libusb en Linux:** `--backend libusb`; necesita desligar `uvcvideo` de la interfaz de control y puede romper el stream; comprobar y documentar.
+12. **Vertical lock:** al desactivarlo la cámara queda en pan 0 / tilt 0; reponer la pose.
+
+Pose y estado de referencia al terminar: máscara `0x0220`, pan -0.8, tilt -11.6, zoom 158, modo normal, 50 Hz, roll 0 (si existe).
