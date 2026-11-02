@@ -69,3 +69,11 @@ cc -o dump_desc dump_desc.c -I/opt/homebrew/include -L/opt/homebrew/lib -lusb-1.
 ```
 
 Los binarios están en `.gitignore`.
+
+## Actualización: CLI en Go (2026-11-02)
+
+- `camera/` (librería) + `cmd/insta360/` (CLI, `insta360 help-agent` para la referencia completa).
+- Backends: libusb (gousb, macOS/Linux, necesita `brew install pkgconf libusb`) y v4l2 (Linux, Go puro, prioridad 100).
+- Verificado en hardware: solo lectura (`list`, `info`, `get`) y un `set` sin cambio. **Movimiento real desde Go: sin probar.**
+- Sin probar: v4l2 en Linux real, escritura de foco/roll, rangos consultados a la cámara (ahora son valores por defecto).
+- Pendiente: interceptor libusb para descifrar las XU (seguimiento IA, presets, privacidad).

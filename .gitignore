@@ -8,3 +8,4 @@ tools/ptz_diag
 /dist/
 *.test
 *.out
+cmd/insta360/insta360
