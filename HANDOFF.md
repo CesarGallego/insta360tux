@@ -51,13 +51,11 @@ sniffear el bus aquí. Alternativa elegida: interceptar en la app oficial.
 ## Estado del repositorio y acceso
 
 - Repo privado: https://github.com/CesarGallego/insta360tux (rama `main`).
-- El remoto está en HTTPS porque SSH fallaba. Causa real: este Mac no tenía clave SSH
-  para GitHub (la clave de host ya está bien en `known_hosts`).
-- Se generó `~/.ssh/id_ed25519_github` (sin passphrase) y se añadió un bloque
-  `Host github.com` a `~/.ssh/config`. **Falta registrar la clave pública en GitHub**:
-  `gh auth refresh -h github.com -s admin:public_key` y luego
-  `gh ssh-key add ~/.ssh/id_ed25519_github.pub --title "MacBook Air"`.
-  Después, si se quiere SSH: `git remote set-url origin git@github.com:CesarGallego/insta360tux.git`.
+- El remoto `origin` usa SSH (`git@github.com:CesarGallego/insta360tux.git`) y funciona.
+- SSH fallaba porque este Mac no tenía clave para GitHub (la clave de host ya estaba bien).
+  Se generó `~/.ssh/id_ed25519_github` (sin passphrase), se añadió un bloque `Host github.com`
+  a `~/.ssh/config` y se registró la clave pública en la cuenta como "MacBook Air de César".
+  El token de `gh` tiene ahora también el scope `admin:public_key`.
 
 ## Cómo reproducir las herramientas (macOS)
 
