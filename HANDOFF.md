@@ -124,7 +124,9 @@ no lo hace aún); las extension units siguen sin descifrar; PU (brillo, etc.) si
   v4l2 (sin probar); CLI `feature`, `gestures`, `tracking-speed`, `flicker`, todo en `get --all` y `help-agent`.
 - VERIFICADO en hardware (macOS, Photo Booth con stream): escribir, leer y restaurar cada bit (HDR, 0x080, 0x100, 0x200, 0x010,
   0x400), mascara de gestos, velocidad, 50/60 Hz. `vertical-lock` gira la imagen 90 grados y deja la pose en 0/0 al apagarlo.
-- NO verificado: efecto fisico de seguimiento automatico / un toque / gestos (hace falta una persona en imagen); que 0x010 sea el
-  interruptor maestro de gestos (hipotesis); todo lo de Linux incl. `--keep-stream` (`camera/stream_linux.go`, solo compilado).
+- VERIFICADO el efecto fisico (macOS, 2026-11-02): seguimiento con un toque (boton tactil entra/sale), gestos de seguimiento y de zoom
+  (bit 0x010 maestro + mascara 0x05). NO reproducible por CLI: seguimiento automatico (0x100), que se dispara con el movimiento manual
+  de la app (unit 9 sel 0x16, sin descifrar); `mode tracking` si da seguimiento directo.
+- NO verificado: gesto de pizarra con marcadores QR; todo lo de Linux incl. `--keep-stream` (`camera/stream_linux.go`, solo compilado).
 - Hallazgos negativos (privacidad, resolucion/fps, presets) y tabla de selectores en `PROTOCOL.md`.
 - Estado final de la camara: 0x0220, gestos 0, velocidad normal, 50 Hz, roll 0, modo normal, pan -0.8 tilt -11.6 zoom 158.

@@ -172,13 +172,13 @@ Estado base en la app: `0x0220`. Todo son control transfers UVC XU, lectura-modi
 | Unit / sel | Tamano | Funcion | Estado |
 |---|---|---|---|
 | 9 / 0x1b bit `0x004` | u16 LE | HDR | VERIFICADO (captura + hardware) |
-| 9 / 0x1b bit `0x080` | | seguimiento IA de un toque (interruptor) | VERIFICADO el bit; efecto fisico no comprobado |
-| 9 / 0x1b bit `0x100` | | seguimiento automatico (sigue cuando se apunta el gimbal a mano) | VERIFICADO el bit; efecto no observado (sin cara en la imagen al probar) |
+| 9 / 0x1b bit `0x080` | | seguimiento IA de un toque (interruptor) | VERIFICADO el bit y el efecto fisico: con el bit activo, un toque en el boton tactil de la camara entra y sale del seguimiento |
+| 9 / 0x1b bit `0x100` | | seguimiento automatico (sigue cuando se apunta el gimbal a mano) | VERIFICADO el bit; efecto NO reproducible por CLI: un giro de pan por CLI no dispara el seguimiento (la app lo dispara con el movimiento manual, unit 9 sel 0x16, sin descifrar) |
 | 9 / 0x1b bit `0x200` | | ajuste inteligente (activo por defecto) | VERIFICADO |
 | 9 / 0x1b bit `0x400` | | bloqueo de toma vertical | VERIFICADO en hardware con stream: la imagen gira 90 grados; la camara pasa a tilt 0 y al desactivar queda en pan 0 tilt 0 (hay que reponer la pose) |
 | 9 / 0x1b bit `0x020` | | sin identificar, siempre activo | se conserva siempre |
-| 9 / 0x1b bit `0x010` | | interruptor maestro de gestos | HIPOTESIS consistente con el log: la app lo puso a 0 al apagar los gestos (`0x0230` -> `0x0220`) y hardware: bit aceptado y leido; efecto fisico (reconocer gestos) no comprobado |
-| 9 / 0x05 | 1 B | mascara de gestos: `0x02` seguimiento, `0x04` zoom, `0x08` pizarra | VERIFICADO en captura y escritura/lectura en hardware (efecto fisico no comprobado) |
+| 9 / 0x1b bit `0x010` | | interruptor maestro de gestos | VERIFICADO en hardware: con este bit y la mascara 0x05, la palma abierta activa el seguimiento y el gesto de zoom funciona |
+| 9 / 0x05 | 1 B | mascara de gestos: `0x02` seguimiento, `0x04` zoom, `0x08` pizarra | VERIFICADO en captura y hardware: efecto fisico comprobado para seguimiento (`0x02`) y zoom (`0x04`); pizarra (`0x08`) sin probar con marcadores |
 | 9 / 0x12 | 1 B | velocidad de seguimiento: `00` rapido, `01` normal ("ordinario"), `02` lento | VERIFICADO en captura y lectura/escritura en hardware |
 | 5 / 0x05 | 1 B | frecuencia de red (PU_POWER_LINE_FREQUENCY estandar UVC): `01`=50 Hz, `02`=60 Hz (`00` = desactivado, `03` = auto: no se exponen) | VERIFICADO en captura y hardware |
 | 1 / 0x0f | s16 | roll estandar (-100..100) = "Ajuste horizontal" (nivelado del horizonte) de la app | VERIFICADO |
