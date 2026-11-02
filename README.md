@@ -63,9 +63,19 @@ pt, _ := cam.GetPanTilt()
 ```
 
 Backends implement `camera.Backend` and register with `camera.Register` from files guarded by build
-tags (`libusb.go` needs cgo; a pure-Go linux `v4l2` backend can be added the same way with a higher
-`Priority`). `INSTA360_BACKEND` or `Options.Backend` overrides automatic selection.
+tags (`libusb.go` needs cgo; `v4l2_linux.go` is pure Go, Priority 100). `INSTA360_BACKEND` or `Options.Backend` overrides automatic selection.
 Tests can use `camera/fake`.
+
+## Linux (v4l2 backend)
+
+On Linux the pure-Go `v4l2` backend (no cgo, no libusb) is preferred automatically. It uses V4L2 ioctls on
+`/dev/video*` (pan/tilt in arc-seconds, zoom, focus; ranges come from the driver; no roll control exists in V4L2).
+Select a device with `/dev/videoN`, `2e1a:4c01`, `BUS.ADDR` or the serial; force it with `INSTA360_BACKEND=v4l2`.
+
+- Your user needs access to `/dev/videoN` (usually the `video` group). EBUSY/EACCES map to the permission error.
+- Movement generally needs an active video stream. If a set fails or has no effect, open a stream first:
+  `ffplay /dev/video0` or `v4l2-ctl -d /dev/video0 --stream-mmap --stream-count=0`.
+- Build check: `GOOS=linux CGO_ENABLED=0 go build ./...`. Not yet tested on real Linux hardware.
 
 ## Development
 
