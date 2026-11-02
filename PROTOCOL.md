@@ -56,12 +56,91 @@ GET_MIN / GET_MAX / GET_RES / GET_DEF (0x82/0x83/0x84/0x87) sobre la Camera Term
 | 10 | `e307e649-4618-a3ff-82fc-2d8b5f216773` | Casi todo ceros en bloques de 10 B (hipótesis: ranuras de comandos). |
 | 11 | `a8bd5df2-1a98-474e-8dd0-d92672d194fa` | Igual que la 10. |
 
-Pendiente: capturar qué escribe la app oficial (seguimiento IA, presets, privacidad, reposo).
-La app (`Insta360 Link Controller.app`) usa libusb y `uvc::UVCCameraExtendController`;
-plan: copia re-firmada ad hoc + dylib que intercepte `libusb_control_transfer`.
+### Captura en la app oficial (v2.2.5_build25, firmware v1.4.8.8_build2, VERIFICADO salvo lo marcado)
+
+Obtenido con `tools/interpose/` (ver su README): la app habla con la camara por IOKit
+(`IOUSBInterfaceInterface::ControlRequest`), no por libusb. Trafico real al arrancar la app:
+
+| Unit/sel | Dir | Len | Contenido observado | Interpretacion |
+|---|---|---|---|---|
+| 10 / 0x07 | SET | 10 | `<u64 LE microsegundos epoch>` + `0000` | VERIFICADO (valor == hora del Mac): sincroniza reloj (`SetTimestamp`) |
+| 9 / 0x03 | GET | 170 | cadenas ASCII 0-terminadas: id, UUID, `v1.4.8.8_build2` | informacion del dispositivo (`GetDeviceInfo`) |
+| 9 / 0x0c | GET | 32 | n.o de serie ASCII | VERIFICADO (coincide con el log de la app) |
+| 9 / 0x02 | GET (1 Hz) | 52 | int32 LE en off 38 = pan (0.1 grado), off 42 = tilt (0.1 grado), u16 off 50 = zoom | VERIFICADO con la pose -0.8 / -11.6 / 158 (`f8ffffff 8cffffff ... 9e00`); es el estado sondeado por la app |
+| 9 / 0x1c | GET (~2 s) | 10 | `80070000 38040000 1e00` | VERIFICADO: u32 ancho 1920, u32 alto 1080, u16 fps 30 (`GetCameraPlayRes`) |
+| 9 / 0x1b | GET/SET | 2 | `3002` (= 0x0230) | mascara u16 LE de "funciones extendidas" (ver abajo) |
+| 9 / 0x1e | GET/SET | 1 | `02` | auto exposicion (`EnableAutoExposure`/`GetAutoExposureStatus`), HIPOTESIS de significado del valor 2 |
+| 9 / 0x19 | GET | 2 | `c305` | ISO (`GetISOValue`): 1475 coincide con "iso from uvc_extend: 1475" del log de la app |
+| 9 / 0x04 | SET 262 + GET 255 | | `a5 d0 03 00 f1 32 00 ...` -> `a5 d0 03 28 aa 00 ...` | HIPOTESIS: version PTZ (`GetPTZVersionInfo`: SendCommand(4)+GetCommand); la app lo registra como "PTZ version: 170" (0xaa) |
+| 9 / 0x10 | SET 255 x3 | 255 | tablas u16 crecientes (paso 4) | curva de exposicion (`SetExpouseCurve`), HIPOTESIS |
+| 9 / 0x09 | GET | 2 | `0000` | compensacion de exposicion, HIPOTESIS |
+
+Patron: para cada selector la app hace primero `GET_LEN (0x85)` y usa ese tamano; las escrituras
+copian el valor al inicio de un buffer de ese tamano rellenado con ceros (p. ej. privacidad: 10 B,
+`01 00 .. 00`). Los metodos `SendCommand/SendCommand2/SendCommand3` de `MacUVCCameraExtendController`
+usan, respectivamente, **unit 9, 10 y 11**, con el selector como numero de comando.
+
+#### Mapa selector -> funcion (HIPOTESIS: deducido del desensamblado de los nombres de metodo, sin confirmar en bus salvo lo marcado arriba)
+
+- **Unit 9**: 0x02 estado (`GetDeviceStatus`/video mode), 0x03 info, 0x04 version PTZ, 0x05/0x06 gestos
+  (`EnableGestureWork` / `GestureBinding`, GET+SET), 0x07 reduccion de ruido de audio, 0x08 draw box
+  (cajas de seguimiento), 0x09 compensacion de exposicion, 0x0a modo almacenamiento (`SwitchStorageMode`),
+  0x0b estado de dispositivo, 0x0c serie, 0x0e restaurar valores de fabrica, 0x10 curva de exposicion,
+  0x11 modo USB (`SwitchSimpleClass/NormalMode/MscReadOnly`), 0x12 velocidad de seguimiento, 0x13 estilo de
+  composicion, 0x14/0x18 listas de objetos seguidos, 0x15 `SetTrackObj` (rectangulo), 0x16 pan/tilt
+  relativo, 0x18 sesgo de composicion, 0x19 ISO, 0x1a pan/tilt absoluto (int32 pan?, tilt? en segundos de arco; eco),
+  0x1b **mascara de funciones**, 0x1c resolucion/fps, 0x1e auto exposicion.
+- **Unit 10**: 0x03 caja de seguimiento PTZ (`SetPtzTrackingBox`), 0x04 plantillas de imagen
+  (`SetImageTemplate`/`DeleteTemplate`), 0x05 nombre de plantilla, 0x07 timestamp (verificado),
+  0x09 `SetIQSwitch(int, bool)`, **0x0f modo privacidad** (1 B), 0x0c `RestoreFactorySet`, 0x13 `SetHostPTZ`,
+  0x14 modo de captura de audio, 0x15 zona prohibida de seguimiento, 0x16 filtro, 0x17 entrar/salir de
+  ajuste de zona prohibida, 0x1a **modo de seguimiento por defecto** (`SetDefaultTrackMode(int)`),
+  0x1b pizarra inteligente, 0x1c correccion horizontal, 0x1d contador de apertura de U-disk, 0x1e zoom real,
+  0x1f direccion de audio.
+- **Unit 11 (presets)**: 0x03 numero de presets soportados (GET 1 B: **6**, VERIFICADO), 0x04 preset actual,
+  0x05 ir a preset (`GotoPreset(int)`), 0x06 estado/borrado de preset (`SetPresetStatus`/`DeletePreset`),
+  0x07 sincronizar preset local a la camara, 0x1b id de preset actual, 0x1c info de presets,
+  0x1f area de seguimiento (`SetTrackAreaInfo`).
+
+#### Mascara de funciones extendidas (unit 9, sel 0x1b, u16 LE; escritura = leer-modificar-escribir)
+
+Cada `EnableExtendFuncWork(func, bool)` pone/quita el bit `1 << func`. El valor de `func` se dedujo de la tabla
+de salto de `CameraInsta::InitExtendFuncStatus` y del valor real leido (`0x0230` = bits 4, 5, 9, que
+coincide con los tres "init ... : 1" del log de la app: gestos, modo vertical, ajuste inteligente):
+
+| Bit | Funcion (nombre del log de la app) | Estado |
+|---|---|---|
+| 0 | zoom IA (`ai_zoom_checked_`) | hipotesis |
+| 2 | HDR (`enable_hdr_`) | hipotesis |
+| 3 | espejo (`mirror_checked_`) | hipotesis |
+| 4 | todos los gestos (`enable_all_gestures_`) | consistente con el valor leido (1) |
+| 5 | modo vertical (`enable_vertical_mode_`) | consistente con el valor leido (1) |
+| 6 | parametros de arranque (`enable_startup_params_`) | hipotesis |
+| 7 | seguimiento con un toque (`enable_single_tap_tracking_`) | hipotesis |
+| 8 | **seguimiento IA automatico** (`enable_auto_tracking_`) | hipotesis |
+| 9 | ajuste inteligente (`smart_adjustment_checked_`) | consistente con el valor leido (1) |
+| 10 | vertical forzado (`forced_vertical_`) | hipotesis |
+| 11 | modo privacidad (`enable_privacy_mode_`) | hipotesis |
+| 12 | espejo vertical (`enable_vertically_mirror_`) | hipotesis |
+| 13 | baja resolucion (`enable_low_resolution_`) | hipotesis |
+| 14 | zona prohibida de seguimiento (`enable_track_forbidden_area_`) | hipotesis |
+
+Experimentos propios (camara en la pose habitual, con la app abierta y la vista previa activa; restaurado despues):
+
+- Escribir `0x0330` (bit 8) en 9/0x1b: la camara lo acepta y lo devuelve (`3003`), pero **no se observo movimiento
+  del gimbal en 8 s** (pan/tilt de sel 0x02 sin cambios). No concluyente: el seguimiento puede requerir
+  que la app lo active por otro camino (unit 10 sel 0x1a / caja de seguimiento). Restaurado a `0x0230`.
+- Escribir `01 00*9` en 10/0x0f (privacidad, segun el desensamblado): el SET se acepta (10 B), pero un GET
+  posterior devuelve ceros y **la imagen no cambia** (la camara no se tapo). El mecanismo de lectura/efecto de la
+  unit 10 queda por aclarar: probablemente hace falta la secuencia exacta de la app. Restaurado a ceros.
+- Por eso **no se ha anadido ningun subcomando de CLI** para estas funciones: no hay correlacion segura.
+
+Pendiente: sesion guiada de captura con la UI (ver `tools/interpose/README.md`) para fijar con certeza
+seguimiento IA, privacidad, presets, gestos, HDR y reposo.
 
 ## Herramientas (`tools/`)
 
 - `dump_desc.c`: descriptores USB y parseo de unidades UVC.
 - `probe_uvc.c`: sondeo de solo lectura (GET_*) de controles estándar y XU.
 - `ptz_test.c`, `ptz_diag.c`: prueba de escritura de pan (mueven la cámara y restauran).
+- `interpose/`: interceptor IOKit/libusb para la app oficial (copia re-firmada ad hoc), `mark`, `xu` y `correlate.py`.

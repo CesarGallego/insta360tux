@@ -35,7 +35,7 @@ sniffear el bus aquí. Alternativa elegida: interceptar en la app oficial.
 
 ## Siguientes pasos (en orden)
 
-1. **Interceptor de libusb** para descifrar las XU. `Insta360 Link Controller.app` usa
+1. **[HECHO: interceptor] [PENDIENTE: sesion de captura con la UI]** Interceptor para descifrar las XU (ver `tools/interpose/README.md`: la app usa IOKit, no libusb). `Insta360 Link Controller.app` usa
    libusb y `uvc::UVCCameraExtendController`; tiene hardened runtime con
    `disable-library-validation`. Plan: copiar la app a un directorio del proyecto,
    re-firmarla ad hoc (`codesign --force --deep -s -`), cargar un dylib que intercepte
@@ -104,3 +104,10 @@ Sin verificar: movimiento sin stream de vídeo (no se cerró Photo Booth); selec
 efecto visual exacto de roll (confirmación visual por el usuario pendiente); v4l2 en Linux real
 (en Linux habrá que apagar `focus_automatic_continuous` antes de `focus_absolute`, el backend v4l2
 no lo hace aún); las extension units siguen sin descifrar; PU (brillo, etc.) sin escribir.
+
+## Interceptor y XU (2026-11-02)
+
+- `tools/interpose/` (xulog.c, build.sh, run.sh, mark.c, xu.c, correlate.py, README): copia ad hoc de la app en `work/`
+  (gitignored) con dylib que registra todas las peticiones de control (IOKit). Funciona con SIP activo.
+- Hallazgos y mapa selector->funcion en `PROTOCOL.md`. Falta una sesion guiada con la UI (no se pudo pulsar
+  botones: sin permiso de accesibilidad / computer-use). Sin subcomandos de CLI nuevos por falta de correlacion segura.

@@ -9,3 +9,4 @@ tools/ptz_diag
 *.test
 *.out
 cmd/insta360/insta360
+/work/
