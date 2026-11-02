@@ -3,3 +3,8 @@ tools/probe_uvc
 tools/ptz_test
 tools/ptz_diag
 .DS_Store
+/insta360
+/bin/
+/dist/
+*.test
+*.out
