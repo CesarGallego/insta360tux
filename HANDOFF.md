@@ -158,7 +158,7 @@ Pose y estado de referencia al terminar: máscara `0x0220`, pan -0.8, tilt -11.6
 5. Stream + `set/center`: OK, movimiento físico verificado comparando fotogramas (pan 60 cambia la escena).
 6. Sin stream: OK, la pose (pan 40) se aplica al arrancar el stream.
 7. Foco: `focus_absolute` está inactivo con AF y el kernel devuelve EACCES (mal mapeado a "permission"). Implementados `GetAutoFocus/SetAutoFocus` (CID 0x009a090c) y `SetFocus` apaga el AF antes. Verificado. **Pendiente:** mapear EACCES de un control inactivo a un error distinto de `permission`.
-8. XU por `UVCIOC_CTRL_QUERY`: escrituras aceptadas por `uvcvideo` (máscara 0x0230↔0x0234, hdr, mode, gestures, tracking-speed). **Hallazgo:** la lectura de `mode` devuelve siempre `unknown(0xff)` (y por eso sale el aviso de modo en cada `set`); no se verificó el efecto físico de `mode tracking/overhead/desk`.
+8. XU por `UVCIOC_CTRL_QUERY`: escrituras aceptadas por `uvcvideo` (máscara 0x0230↔0x0234, hdr, mode, gestures, tracking-speed). **Resuelto:** la lectura de `mode` no estaba rota; el firmware devuelve 0xff ~2 s, desde ~1 s tras abrir un stream (transitorio de arranque), y luego el modo real. Ahora es `settling` y `Camera.GetMode` reintenta hasta 3 s. Verificado el efecto físico de normal/overhead/desk (lectura 00/05/06); tracking y whiteboard sin verificar.
 9. Antiparpadeo 50/60: OK.
 10. `--keep-stream`: OK (mantiene 3 s y suelta). DQBUF/EAGAIN no se forzó.
 11. libusb en Linux: NO probado (`bad access`, sin regla udev ni desligar uvcvideo).

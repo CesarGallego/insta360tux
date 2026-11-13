@@ -524,6 +524,10 @@ func (a *app) cmdSet(cam *camera.Camera, f *cmdFlags, relative bool) int {
 		switch {
 		case err != nil: // unsupported or unreadable: carry on without mode handling
 		case cur == camera.ModeNormal:
+		case cur == camera.ModeSettling && !f.normal:
+			w := "camera is still settling after a stream start; the move may be ignored or delayed (retry in a few seconds)"
+			out["warnings"] = []string{w}
+			fmt.Fprintln(a.err, "warning: "+w)
 		case f.normal:
 			r, err := cam.SetMode(camera.ModeNormal)
 			if err != nil {

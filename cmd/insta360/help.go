@@ -112,9 +112,9 @@ const topicCaveats = `IMPORTANT CAVEATS (read before automating)
   7. Modes: besides normal, the camera has special modes that move the gimbal ON THEIR OWN
      (tracking, whiteboard, overhead, desk). While one is active, 'set'/'move' of pan/tilt is
      overridden or ignored. 'set --normal' switches to mode normal first. See 'insta360 mode --help'.
-     KNOWN ISSUE: on Linux (v4l2) reading the mode currently returns "unknown(0xff)", which also
-     triggers a spurious mode warning on 'set'; writing a mode is accepted but its physical effect
-     has not been verified on Linux.
+     Reading the mode returns "settling" for ~2 s starting ~1 s after a stream opens (firmware
+     transient); 'mode' and 'set' retry for up to 3 s before reporting it. The physical effect of each
+     mode is verified for normal/overhead/desk on Linux; tracking and whiteboard are not.
   8. Features, gestures, tracking speed and flicker are plain configuration writes: they need no
      stream. Their PHYSICAL effects (vertical-lock moves the gimbal to 90 degrees, auto-tracking and
      onetouch-tracking make the camera move by itself) need an active stream. Features are bits of one
@@ -240,7 +240,7 @@ At least one of these is required (else exit 2). Values outside the range exit 4
 		Summary: "Read or set the camera mode. No argument = print the current mode. Modes: normal (default behaviour), tracking (AI face tracking: the camera MOVES BY ITSELF and fights any pan/tilt you set), whiteboard (zooms out looking for QR markers on the board; cancels itself back to normal after a few seconds if it finds none), overhead (tilts straight down, -90 deg), desk (desk view, frames the hands, tilt about -45 deg). Always finish with 'mode normal' to hand control back.",
 		Usage:   "insta360 mode [normal|tracking|whiteboard|overhead|desk]",
 		Flags:   "NAME   mode to set (case-insensitive). Unknown name: exit 2. Backends without extension-unit access (v4l2 if UVCIOC_CTRL_QUERY fails): exit 6.",
-		Output: `Read:  {"mode":"normal"}   (an unseen firmware value is reported as "unknown(0x02)"; known issue: v4l2 on Linux currently always reads "unknown(0xff)")
+		Output: `Read:  {"mode":"normal"}   (an unseen firmware value is reported as "unknown(0x02)"; "settling" for ~2 s right after a stream starts)
   Write: {"mode":{"requested":"overhead","applied":"overhead","clamped":false,"dry_run":false}}
   Nothing is read back after a write; poll 'insta360 mode' (the camera needs ~1 s to settle).`,
 		Examples: "insta360 mode\ninsta360 mode overhead\ninsta360 mode normal\ninsta360 --dry-run mode tracking",

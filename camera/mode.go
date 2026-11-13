@@ -3,6 +3,7 @@ package camera
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Mode is a camera "mode" of the Insta360 Link: the byte 0 of the unit 9
@@ -16,7 +17,14 @@ const (
 	ModeWhiteboard Mode = "whiteboard" // 0x04: zooms out looking for QR markers; cancels itself if none are found
 	ModeOverhead   Mode = "overhead"   // 0x05: tilts straight down (-90 deg)
 	ModeDesk       Mode = "desk"       // 0x06: desk view, frames the hands (tilt about -45 deg)
+
+	// ModeSettling is reported for wire value 0xff. Seen on Linux (2026-11-13): the camera
+	// answers 0xff for about 2 s starting ~1 s after a video stream opens, then returns to
+	// the real mode. It is a transient state, never settable.
+	ModeSettling Mode = "settling"
 )
+
+const modeSettlingByte = 0xff
 
 // Modes lists the modes that can be set, in CLI order. Wire values 0x02 and
 // 0x03 were never seen and are deliberately not settable.
@@ -38,6 +46,9 @@ func ModeByte(m Mode) (byte, bool) { b, ok := modeBytes[m]; return b, ok }
 
 // ModeFromByte names a wire value. Unseen values are reported as "unknown(0xNN)".
 func ModeFromByte(b byte) Mode {
+	if b == modeSettlingByte {
+		return ModeSettling
+	}
 	for m, v := range modeBytes {
 		if v == b {
 			return m
@@ -80,8 +91,7 @@ func DecodeModeBlock(b []byte) (Mode, error) {
 }
 
 // ModeController is optionally implemented by backends that can read and set
-// the camera mode. Today only the libusb backend does (and the fake one). On
-// Linux the v4l2 backend can implement it through UVCIOC_CTRL_QUERY (unverified).
+// the camera mode. The libusb, v4l2 (UVCIOC_CTRL_QUERY, verified on Linux) and fake backends do.
 type ModeController interface {
 	GetMode() (Mode, error)
 	SetMode(Mode) error
@@ -89,13 +99,26 @@ type ModeController interface {
 
 // GetMode returns the current mode. ErrUnsupported if the backend cannot.
 // Unseen wire values are returned as "unknown(0xNN)", not as an error.
+//
+// While the camera reports ModeSettling (a transient after a stream starts) the
+// read is retried for up to ~3 s; if it never settles, ModeSettling is returned.
 func (c *Camera) GetMode() (Mode, error) {
 	m, ok := c.b.(ModeController)
 	if !ok {
 		return "", ErrUnsupported
 	}
-	return m.GetMode()
+	cur, err := m.GetMode()
+	for i := 0; err == nil && cur == ModeSettling && i < modeSettlingRetries; i++ {
+		time.Sleep(modeSettlingPoll)
+		cur, err = m.GetMode()
+	}
+	return cur, err
 }
+
+var (
+	modeSettlingRetries = 12
+	modeSettlingPoll    = 250 * time.Millisecond
+)
 
 // SetMode switches the camera mode (nothing is sent in dry-run).
 // Tracking makes the camera move on its own and fights SetPanTilt; use

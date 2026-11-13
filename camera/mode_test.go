@@ -78,3 +78,12 @@ func TestCameraSetGetMode(t *testing.T) {
 		t.Errorf("dry-run: %+v %v writes=%d", r, err, b2.Writes)
 	}
 }
+
+func TestModeSettling(t *testing.T) {
+	if got := camera.ModeFromByte(0xff); got != camera.ModeSettling {
+		t.Errorf("0xff = %q", got)
+	}
+	if _, err := camera.EncodeModeBlock(camera.ModeSettling); err == nil {
+		t.Error("settling must not be settable")
+	}
+}

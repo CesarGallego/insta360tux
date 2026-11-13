@@ -61,9 +61,9 @@ focus 0..100; roll -100..100.
 ### Modes (`insta360 mode`)
 
 `mode [normal|tracking|whiteboard|overhead|desk]` (no argument: print it; `get --all` includes it).
-Works on the libusb backend and, on Linux, through `UVCIOC_CTRL_QUERY` on v4l2 (writes accepted by the
-camera; reading the mode currently returns `unknown(0xff)` there, and the physical effect of each mode is
-not yet verified on Linux). Always finish with `mode normal`.
+Works on the libusb backend and, on Linux, through `UVCIOC_CTRL_QUERY` on v4l2 (reads and writes work;
+right after a stream starts the firmware reports `0xff` for ~2 s, shown as `settling` and retried for up to
+3 s). Physical effect verified on Linux for normal/overhead/desk only. Always finish with `mode normal`.
 
 | Mode | Wire | Effect (confirmed by the user in the official app, reproduced here without it) |
 |---|---|---|
@@ -130,7 +130,7 @@ Select a device with `/dev/videoN`, `2e1a:4c01`, `BUS.ADDR` or the serial; force
 - Movement generally needs an active video stream. If a set fails or has no effect, open a stream first:
   `ffplay /dev/video0` or `v4l2-ctl -d /dev/video0 --stream-mmap --stream-count=0`.
 - Modes (`insta360 mode`) use `UVCIOC_CTRL_QUERY` on the unit 9 extension unit (no uvcvideo mapping needed);
-  verified on real Linux (2026-11-13) for writes. Known issue: reading the mode returns `unknown(0xff)`.
+  verified on real Linux (2026-11-13). The firmware answers `0xff` (`settling`) for ~2 s after a stream starts.
 - `--keep-stream [--resolution WxH --fps N --stream-hold DUR]` (v4l2 only) holds a capture stream (mmap + STREAMON,
   frames discarded) while the command runs, so the camera moves without another app. Verified on real Linux hardware (2026-11-13).
 - Features/gestures/tracking speed use `UVCIOC_CTRL_QUERY` and anti-flicker the standard V4L2 power line control (both verified on real Linux hardware, 2026-11-13).
