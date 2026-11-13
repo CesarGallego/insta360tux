@@ -120,7 +120,7 @@ const topicCaveats = `IMPORTANT CAVEATS (read before automating)
      onetouch-tracking make the camera move by itself) need an active stream. Features are bits of one
      mask that is always read-modify-written, so unknown bits are preserved. There is NO command for
      privacy/sleep (the camera enters privacy by itself when no stream is open and wakes when one starts),
-     nor for resolution/fps (not a camera setting) nor for presets (they live in the official app).
+     nor for resolution/fps (not a camera setting) nor for presets (not exposed by the camera over UVC).
   9. Permissions: v4l2 needs access to /dev/video* (group 'video'); libusb needs a udev rule and on Linux
      must detach uvcvideo (not verified). Exit 7 can also appear for a busy device.
 `
@@ -223,7 +223,7 @@ var docs = []cmdDoc{
 --tilt DEG   absolute tilt in degrees, -90..100
 --zoom RAW   absolute zoom, integer 100..400 (100 = 1.0x)
 --focus RAW  absolute focus, integer 0..100 (turns autofocus off first)
---roll RAW   absolute roll, integer -100..100 (signed). This is the app's \"Ajuste horizontal\" (horizon leveling)
+--roll RAW   absolute roll, integer -100..100 (signed). This is the horizon leveling control
 --autofocus[=BOOL]  switch autofocus on/off ("--autofocus=false" to disable)
 --normal (alias --release)  if the camera is in a special mode (see 'mode'), switch to 'normal'
              first and wait 1.5 s. Without it, a warning is printed (stderr, and "warnings" in the JSON)
@@ -257,7 +257,7 @@ At least one of these is required (else exit 2). Values outside the range exit 4
 	},
 	{
 		Name:    "gestures",
-		Summary: "Read or set the gesture controls. Enabled = master switch (feature mask bit 0x010, hypothesis, matches the app capture); tracking / zoom / whiteboard = gesture mask bits 0x02 / 0x04 / 0x08 of unit 9 selector 0x05. Only the options you pass change; other bits are preserved. Without options: print the state.",
+		Summary: "Read or set the gesture controls. Enabled = master switch (feature mask bit 0x010, hypothesis); tracking / zoom / whiteboard = gesture mask bits 0x02 / 0x04 / 0x08 of unit 9 selector 0x05. Only the options you pass change; other bits are preserved. Without options: print the state.",
 		Usage:   "insta360 gestures [--enable on|off] [--tracking on|off] [--zoom on|off] [--whiteboard on|off]",
 		Flags:   "--enable V      master switch\n--tracking V    tracking gesture\n--zoom V        zoom gesture\n--whiteboard V  whiteboard gesture\nV is on|off (also true|false|1|0); anything else: exit 2",
 		Output: `Read:  {"gestures":{"enabled":false,"tracking":false,"zoom":false,"whiteboard":false,"mask":0}}
@@ -266,7 +266,7 @@ At least one of these is required (else exit 2). Values outside the range exit 4
 	},
 	{
 		Name:    "tracking-speed",
-		Summary: "Read or set the AI tracking speed (unit 9 selector 0x12): quick (0), normal (1, the app's \"Ordinario\"), slow (2). Needs no stream; only matters while tracking.",
+		Summary: "Read or set the AI tracking speed (unit 9 selector 0x12): quick (0), normal (1), slow (2). Needs no stream; only matters while tracking.",
 		Usage:   "insta360 tracking-speed [quick|normal|slow]",
 		Flags:   "NAME   speed to set; unknown: exit 2",
 		Output: `Read:  {"tracking_speed":"normal"}   (unseen value: "unknown(0x03)")

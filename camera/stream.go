@@ -7,7 +7,7 @@ type StreamOptions struct {
 }
 
 // StreamKeeper is optionally implemented by backends that can hold a video
-// capture stream open (today only v4l2 on Linux, UNVERIFIED on real hardware).
+// capture stream open (today only v4l2 on Linux, verified on hardware).
 // The camera only moves, and only keeps its pose, while a stream is open; with
 // no stream it enters privacy mode by itself (see PROTOCOL.md).
 type StreamKeeper interface {

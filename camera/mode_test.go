@@ -8,7 +8,7 @@ import (
 	"github.com/CesarGallego/insta360tux/camera"
 )
 
-// The block captured from the official app when selecting overhead (see PROTOCOL.md).
+// The mode block observed on the bus when overhead is selected (see PROTOCOL.md).
 const appOverhead = "05000000000000000000000000000000000000000000000000000000000000000000000000001a0e00001a0e00001a0e00000000"
 
 func TestEncodeModeBlockMatchesApp(t *testing.T) {

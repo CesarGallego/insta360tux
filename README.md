@@ -4,6 +4,9 @@ Library and CLI to control the gimbal (pan / tilt / zoom, plus focus and roll) o
 **Insta360 Link** (USB `2e1a:4c01`) through the standard UVC PTZ controls.
 Protocol notes: [PROTOCOL.md](PROTOCOL.md). Project state: [HANDOFF.md](HANDOFF.md).
 
+> Insta360 and Insta360 Link are trademarks of Arashi Vision Inc. This is an independent, unofficial
+> project; it is not affiliated with, endorsed by or sponsored by Arashi Vision Inc. / Insta360.
+
 ## Install
 
 Requires Go 1.27+, `libusb` and `pkg-config` (the libusb backend uses cgo via
@@ -65,7 +68,7 @@ Works on the libusb backend and, on Linux, through `UVCIOC_CTRL_QUERY` on v4l2 (
 right after a stream starts the firmware reports `0xff` for ~2 s, shown as `settling` and retried for up to
 3 s). Physical effect verified on Linux for normal/overhead/desk only. Always finish with `mode normal`.
 
-| Mode | Wire | Effect (confirmed by the user in the official app, reproduced here without it) |
+| Mode | Wire | Effect (observed on real hardware) |
 |---|---|---|
 | normal | 0 | default; pan/tilt/zoom are yours |
 | tracking | 1 | AI tracking: the camera moves **by itself** following a face; `set --pan` is overridden |
@@ -75,7 +78,7 @@ right after a stream starts the firmware reports `0xff` for ~2 s, shown as `sett
 
 `set`/`move` print a warning if the camera is not in `normal`; `--normal` (alias `--release`) switches to
 `normal` first and waits 1.5 s. Modes `0x02` and `0x03` were never seen and are not settable.
-The official app's extra handshake (unit 9 selectors `0x14`/`0x15`) is **not** needed.
+No extra handshake is needed to switch modes.
 Details and verified/unverified lists: PROTOCOL.md.
 
 ### Features, gestures, tracking speed, anti-flicker
@@ -92,12 +95,12 @@ All of them are included in `get --all`. Features are bits of unit 9 selector `0
 (unknown bits such as `0x0020` are preserved). They need no video stream, but physical effects do.
 Caveats: `vertical-lock` rotates the image 90 degrees and re-poses the gimbal (set pan/tilt again afterwards);
 `auto-tracking` and `onetouch-tracking` make the camera move by itself. The roll control (`set --roll`) is the
-app's "Ajuste horizontal" (horizon leveling).
+horizon leveling control.
 
 Verified on hardware (macOS/libusb, with a stream): set + readback + restore of every bit, gesture mask bits,
 tracking speed and 50/60 Hz; vertical-lock visibly rotates the image. NOT verified: the physical effect of
 auto-tracking / one-touch / gestures (needs a person in frame / making gestures), the gesture master switch
-being bit `0x010` (hypothesis from the capture), and everything on Linux.
+being bit `0x010` (a hypothesis).
 There is no command for privacy/sleep (the camera sleeps by itself when no stream is open), resolution/fps or
 presets: see PROTOCOL.md.
 

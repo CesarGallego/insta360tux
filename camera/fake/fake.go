@@ -11,7 +11,7 @@ type Backend struct {
 	Zoom, Focus, Roll int
 	AutoFocus         bool
 	Mode              camera.Mode // zero value means normal
-	FeatureMask       uint16      // unit 9 sel 0x1b; New() starts at the app's base state 0x0220
+	FeatureMask       uint16      // unit 9 sel 0x1b; New() starts at the base state 0x0220
 	GestureMask       byte
 	Speed             camera.TrackingSpeed // zero value means normal
 	PowerLine         camera.PowerLineFrequency

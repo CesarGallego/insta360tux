@@ -283,7 +283,7 @@ func (b *libusbBackend) GetMode() (Mode, error) {
 	return DecodeModeBlock(d)
 }
 
-// SetMode writes the 52 byte block the official app writes. No handshake
+// SetMode writes the 52 byte mode block. No handshake
 // (unit 9 selectors 0x14/0x15) is needed: verified on hardware.
 func (b *libusbBackend) SetMode(m Mode) error {
 	d, err := EncodeModeBlock(m)

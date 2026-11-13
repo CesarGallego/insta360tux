@@ -17,7 +17,7 @@ func pt(p, t int32) []byte {
 }
 func u16(v int16) []byte { return binary.LittleEndian.AppendUint16(nil, uint16(v)) }
 
-// linkGetter replays the answers captured from a real Insta360 Link.
+// linkGetter replays the answers recorded from a real Insta360 Link.
 func linkGetter(req uint8, sel uint16, n int) ([]byte, error) {
 	switch sel {
 	case 0x0D:

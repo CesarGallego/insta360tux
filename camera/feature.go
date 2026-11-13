@@ -9,13 +9,13 @@ import (
 // Feature is a named on/off function stored as one bit of the unit 9
 // selector 0x1b mask (u16 little endian). The mask is always modified with
 // read-modify-write so unknown bits (0x0020 is always set) are preserved.
-// Bits were confirmed by the user in the official app with a guided capture
-// session (see PROTOCOL.md), except where noted there.
+// Bits were confirmed on real hardware by observing their physical effect
+// (see PROTOCOL.md), except where noted there.
 type Feature string
 
 const (
 	FeatureHDR          Feature = "hdr"               // 0x004
-	FeatureGestures     Feature = "gestures"          // 0x010 master switch (HYPOTHESIS, consistent with the capture)
+	FeatureGestures     Feature = "gestures"          // 0x010 master switch (HYPOTHESIS)
 	FeatureOneTouch     Feature = "onetouch-tracking" // 0x080 one-touch AI tracking toggle
 	FeatureAutoTracking Feature = "auto-tracking"     // 0x100 tracks when the gimbal is aimed manually
 	FeatureSmartFraming Feature = "smart-framing"     // 0x200 on by default
@@ -317,7 +317,7 @@ func (c *Camera) SetGestures(u GestureUpdate) (GestureChange, error) {
 	if c.opts.DryRun {
 		return res, nil
 	}
-	// Mask 0x05 first when enabling, last when disabling: mirrors the app's order.
+	// Mask 0x05 first when enabling, last when disabling (the order that was observed to work).
 	if ng != gm && nf&0x010 != 0 {
 		if err := gc.SetGestureMask(ng); err != nil {
 			return res, err

@@ -8,7 +8,7 @@ import (
 
 // Mode is a camera "mode" of the Insta360 Link: the byte 0 of the unit 9
 // selector 0x02 block (see PROTOCOL.md). Verified on hardware (macOS, libusb,
-// firmware v1.4.8.8_build2) by writing the block without the official app.
+// firmware v1.4.8.8_build2) by writing the block directly.
 type Mode string
 
 const (
@@ -60,13 +60,13 @@ func ModeFromByte(b byte) Mode {
 // Layout of the 52 byte unit 9 selector 0x02 block.
 const (
 	ModeBlockLen = 52
-	// The app writes 0x0e1a (3610) as int32 LE at offsets 38, 42 and 46 on every
-	// mode change. Meaning unknown; replicated verbatim (verified to work).
+	// 0x0e1a (3610) as int32 LE at offsets 38, 42 and 46 is present in every
+	// mode block. Meaning unknown; written verbatim (verified to work).
 	modeBlockConst = 3610
 )
 
 // EncodeModeBlock builds the 52 byte block written to select m, byte for
-// byte what the official app sends.
+// byte what the camera accepts (verified on hardware).
 func EncodeModeBlock(m Mode) ([]byte, error) {
 	v, ok := modeBytes[m]
 	if !ok {
