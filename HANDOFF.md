@@ -149,3 +149,19 @@ Orden recomendado; marcar cada punto como verificado o roto en este fichero.
 12. **Vertical lock:** al desactivarlo la cámara queda en pan 0 / tilt 0; reponer la pose.
 
 Pose y estado de referencia al terminar: máscara `0x0220`, pan -0.8, tilt -11.6, zoom 158, modo normal, 50 Hz, roll 0 (si existe).
+
+## Resultado de la primera prueba en Linux (2026-11-13, Insta360 Link, kernel 7.3.1, nodo /dev/video0)
+
+1. Build/vet/test: OK. 2. Permisos: usuario en grupo `video`, OK (el exit 7 sin permisos no se probó).
+3. Detección: **estaba roto** — `scanNodes` usaba `filepath.Join(e,"device","..")`, que se limpia léxicamente y nunca llegaba al dispositivo USB; v4l2 no listaba nada y se caía a libusb. Corregido con `EvalSymlinks` + `Dir`. Ahora elige v4l2, `ranges_source=device`.
+4. `get --all`: OK; sólo falta roll (`operation not supported`, esperado).
+5. Stream + `set/center`: OK, movimiento físico verificado comparando fotogramas (pan 60 cambia la escena).
+6. Sin stream: OK, la pose (pan 40) se aplica al arrancar el stream.
+7. Foco: `focus_absolute` está inactivo con AF y el kernel devuelve EACCES (mal mapeado a "permission"). Implementados `GetAutoFocus/SetAutoFocus` (CID 0x009a090c) y `SetFocus` apaga el AF antes. Verificado. **Pendiente:** mapear EACCES de un control inactivo a un error distinto de `permission`.
+8. XU por `UVCIOC_CTRL_QUERY`: escrituras aceptadas por `uvcvideo` (máscara 0x0230↔0x0234, hdr, mode, gestures, tracking-speed). **Hallazgo:** la lectura de `mode` devuelve siempre `unknown(0xff)` (y por eso sale el aviso de modo en cada `set`); no se verificó el efecto físico de `mode tracking/overhead/desk`.
+9. Antiparpadeo 50/60: OK.
+10. `--keep-stream`: OK (mantiene 3 s y suelta). DQBUF/EAGAIN no se forzó.
+11. libusb en Linux: NO probado (`bad access`, sin regla udev ni desligar uvcvideo).
+12. Vertical lock: se activa/desactiva (máscara 0x0230↔0x0630); no se comprobó el giro visual.
+
+Estado de la cámara al terminar: máscara 0x0230 (la inicial; difiere de la de referencia 0x0220), pan 0, tilt -83, zoom 100, foco 0 con AF activo, 50 Hz, modo normal escrito.

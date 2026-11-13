@@ -79,7 +79,12 @@ func scanNodes() ([]v4l2Node, error) {
 		if videoNodeNumber(e) < 0 {
 			continue
 		}
-		id, err := readUSBIdent(filepath.Join(e, "device", ".."))
+		// filepath.Join would clean "device/.." lexically; resolve the symlink first.
+		ifaceDir, err := filepath.EvalSymlinks(filepath.Join(e, "device"))
+		if err != nil {
+			continue
+		}
+		id, err := readUSBIdent(filepath.Dir(ifaceDir))
 		if err != nil {
 			continue
 		}
@@ -273,7 +278,33 @@ func (b *v4l2Backend) SetFocus(v int) error {
 	if !b.hasFocus() {
 		return ErrUnsupported
 	}
+	// The driver rejects focus_absolute (EACCES, control inactive) while
+	// continuous autofocus is on, so switch it off first.
+	if on, err := b.GetAutoFocus(); err == nil && on {
+		if err := b.SetAutoFocus(false); err != nil {
+			return err
+		}
+	}
 	return b.setCtrl("SET focus", v4l2CIDFocusAbsolute, int32(v))
+}
+
+func (b *v4l2Backend) GetAutoFocus() (bool, error) {
+	if !b.hasFocus() {
+		return false, ErrUnsupported
+	}
+	v, err := b.getCtrl("GET autofocus", v4l2CIDFocusAuto)
+	return v != 0, err
+}
+
+func (b *v4l2Backend) SetAutoFocus(on bool) error {
+	if !b.hasFocus() {
+		return ErrUnsupported
+	}
+	var v int32
+	if on {
+		v = 1
+	}
+	return b.setCtrl("SET autofocus", v4l2CIDFocusAuto, v)
 }
 
 var _ = strings.TrimSpace
