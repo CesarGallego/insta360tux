@@ -50,12 +50,7 @@ sniffear el bus aquí. Alternativa elegida: interceptar en la app oficial.
 
 ## Estado del repositorio y acceso
 
-- Repo privado: https://github.com/CesarGallego/insta360tux (rama `main`).
-- El remoto `origin` usa SSH (`git@github.com:CesarGallego/insta360tux.git`) y funciona.
-- SSH fallaba porque este Mac no tenía clave para GitHub (la clave de host ya estaba bien).
-  Se generó `~/.ssh/id_ed25519_github` (sin passphrase), se añadió un bloque `Host github.com`
-  a `~/.ssh/config` y se registró la clave pública en la cuenta como "MacBook Air de César".
-  El token de `gh` tiene ahora también el scope `admin:public_key`.
+- Repo público: https://github.com/CesarGallego/insta360tux (rama `main`).
 
 ## Cómo reproducir las herramientas (macOS)
 
