@@ -158,10 +158,17 @@ Pose y estado de referencia al terminar: máscara `0x0220`, pan -0.8, tilt -11.6
 5. Stream + `set/center`: OK, movimiento físico verificado comparando fotogramas (pan 60 cambia la escena).
 6. Sin stream: OK, la pose (pan 40) se aplica al arrancar el stream.
 7. Foco: `focus_absolute` está inactivo con AF y el kernel devuelve EACCES (mal mapeado a "permission"). Implementados `GetAutoFocus/SetAutoFocus` (CID 0x009a090c) y `SetFocus` apaga el AF antes. Verificado. **Pendiente:** mapear EACCES de un control inactivo a un error distinto de `permission`.
-8. XU por `UVCIOC_CTRL_QUERY`: escrituras aceptadas por `uvcvideo` (máscara 0x0230↔0x0234, hdr, mode, gestures, tracking-speed). **Resuelto:** la lectura de `mode` no estaba rota; el firmware devuelve 0xff ~2 s, desde ~1 s tras abrir un stream (transitorio de arranque), y luego el modo real. Ahora es `settling` y `Camera.GetMode` reintenta hasta 3 s. Verificado el efecto físico de normal/overhead/desk (lectura 00/05/06); tracking y whiteboard sin verificar.
+8. XU por `UVCIOC_CTRL_QUERY`: escrituras aceptadas por `uvcvideo` (máscara 0x0230↔0x0234, hdr, mode, gestures, tracking-speed). **Resuelto:** la lectura de `mode` no estaba rota; el firmware devuelve 0xff ~2 s, desde ~1 s tras abrir un stream (transitorio de arranque), y luego el modo real. Ahora es `settling` y `Camera.GetMode` reintenta hasta 3 s. Verificado el efecto físico de normal/overhead/desk (lectura 00/05/06); tracking y whiteboard verificados después (ver abajo).
 9. Antiparpadeo 50/60: OK.
 10. `--keep-stream`: OK (mantiene 3 s y suelta). DQBUF/EAGAIN no se forzó.
 11. libusb en Linux: NO probado (`bad access`, sin regla udev ni desligar uvcvideo).
 12. Vertical lock: se activa/desactiva (máscara 0x0230↔0x0630); no se comprobó el giro visual.
 
 Estado de la cámara al terminar: máscara 0x0230 (la inicial; difiere de la de referencia 0x0220), pan 0, tilt -83, zoom 100, foco 0 con AF activo, 50 Hz, modo normal escrito.
+
+### Verificación de tracking y whiteboard (2026-11-13, Linux, stream activo)
+
+El bloque de modo (unit 9 sel 0x02) refleja la posición real (pan/tilt en 0.1° en offsets 38/42, zoom u16 en 50) y byte 1 es estado: se usó para observar sin depender de imagen.
+- **tracking:** byte 0 = 01. La cámara se mueve sola buscando una cara (pan -10..+10, tilt hasta -16.7, estado 0x10). Cuando se estabiliza (estado 0x03) un `set --pan 60` SÍ se respeta y el modo sigue en tracking: no "pelea" siempre, solo cuando persigue un objetivo (no probado con objetivo en movimiento).
+- **whiteboard:** byte 0 = 04, estado 01 (buscando) unos 10 s y se cancela solo a modo 00 con estado 03 al no hallar marcadores. No se probó con marcadores QR reales; el zoom reportado no cambió (ya estaba en 100).
+- Sin stream la cámara pasa a posición de reposo (tilt ≈ -83) y el modo lee 0xff: no probar modos sin stream.

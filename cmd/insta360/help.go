@@ -114,7 +114,7 @@ const topicCaveats = `IMPORTANT CAVEATS (read before automating)
      overridden or ignored. 'set --normal' switches to mode normal first. See 'insta360 mode --help'.
      Reading the mode returns "settling" for ~2 s starting ~1 s after a stream opens (firmware
      transient); 'mode' and 'set' retry for up to 3 s before reporting it. The physical effect of each
-     mode is verified for normal/overhead/desk on Linux; tracking and whiteboard are not.
+     mode is verified on Linux for normal, overhead, desk, tracking and whiteboard (whiteboard only without QR markers). Test modes with a stream active.
   8. Features, gestures, tracking speed and flicker are plain configuration writes: they need no
      stream. Their PHYSICAL effects (vertical-lock moves the gimbal to 90 degrees, auto-tracking and
      onetouch-tracking make the camera move by itself) need an active stream. Features are bits of one
