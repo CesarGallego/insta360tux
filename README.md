@@ -39,8 +39,9 @@ any position (`insta360 zoom 200 --json`); `--` ends flag parsing.
 Exit codes: 0 ok, 1 internal, 2 usage, 3 no device, 4 out of range, 5 transfer/timeout,
 6 backend unavailable/unsupported, 7 permission/busy.
 
-`insta360 --help`, `insta360 <cmd> --help` and `insta360 help-agent` (the whole reference as one
-Markdown document, written for LLM agents). `--backend fake` gives an in-memory camera to try things.
+`insta360 --help` (short map), `insta360 <cmd> --help`, `insta360 help <topic>` (topics: `flags`, `units`,
+`caveats`, `exit-codes`, `output`; `insta360 help` lists everything) and `insta360 help-agent` (the whole
+reference as one Markdown document, written for LLM agents). `--backend fake` gives an in-memory camera to try things.
 
 Units: pan/tilt degrees (pan +-145, tilt -90..100); zoom raw 100..400 (100 = 1.0x);
 focus 0..100; roll -100..100.
@@ -60,8 +61,9 @@ focus 0..100; roll -100..100.
 ### Modes (`insta360 mode`)
 
 `mode [normal|tracking|whiteboard|overhead|desk]` (no argument: print it; `get --all` includes it).
-Libusb backend only on macOS/Linux; the v4l2 backend has an untested implementation through
-`UVCIOC_CTRL_QUERY`. Always finish with `mode normal`.
+Works on the libusb backend and, on Linux, through `UVCIOC_CTRL_QUERY` on v4l2 (writes accepted by the
+camera; reading the mode currently returns `unknown(0xff)` there, and the physical effect of each mode is
+not yet verified on Linux). Always finish with `mode normal`.
 
 | Mode | Wire | Effect (confirmed by the user in the official app, reproduced here without it) |
 |---|---|---|
@@ -128,11 +130,12 @@ Select a device with `/dev/videoN`, `2e1a:4c01`, `BUS.ADDR` or the serial; force
 - Movement generally needs an active video stream. If a set fails or has no effect, open a stream first:
   `ffplay /dev/video0` or `v4l2-ctl -d /dev/video0 --stream-mmap --stream-count=0`.
 - Modes (`insta360 mode`) use `UVCIOC_CTRL_QUERY` on the unit 9 extension unit (no uvcvideo mapping needed);
-  implemented but untested on real Linux. If it fails the command exits 5 or 7.
+  verified on real Linux (2026-11-13) for writes. Known issue: reading the mode returns `unknown(0xff)`.
 - `--keep-stream [--resolution WxH --fps N --stream-hold DUR]` (v4l2 only) holds a capture stream (mmap + STREAMON,
-  frames discarded) while the command runs, so the camera moves without another app. Cross-compiled only: UNVERIFIED.
-- Features/gestures/tracking speed use `UVCIOC_CTRL_QUERY` and anti-flicker the standard V4L2 power line control (UNVERIFIED).
-- Build check: `GOOS=linux CGO_ENABLED=0 go build ./...`. Not yet tested on real Linux hardware.
+  frames discarded) while the command runs, so the camera moves without another app. Verified on real Linux hardware (2026-11-13).
+- Features/gestures/tracking speed use `UVCIOC_CTRL_QUERY` and anti-flicker the standard V4L2 power line control (both verified on real Linux hardware, 2026-11-13).
+- Focus: `set --focus` switches `focus_automatic_continuous` off first; `set --autofocus=true` restores it.
+- Build check: `GOOS=linux CGO_ENABLED=0 go build ./...`. First hardware test on Linux: see HANDOFF.md.
 
 ## Development
 

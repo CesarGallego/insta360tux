@@ -195,9 +195,10 @@ Hallazgos NEGATIVOS (no existe comando XU):
 - Tras `vertical-lock` la pose vuelve a 0/0; tras `auto-tracking` activado el efecto fisico necesita una cara en la imagen (no probado).
 
 Implementado en la libreria (`camera/feature.go`) y CLI: `feature`, `gestures`, `tracking-speed`, `flicker`.
-En Linux, los backends v4l2 usan `UVCIOC_CTRL_QUERY` para las XU (SIN PROBAR) y `V4L2_CID_POWER_LINE_FREQUENCY`
-(0x00980918, mismos valores que UVC) para el anti-parpadeo (SIN PROBAR).
-`--keep-stream` (v4l2): mmap + `VIDIOC_STREAMON` en una goroutine para que la camara tenga un stream mientras se mueve; solo compilado, SIN PROBAR en hardware.
+En Linux, los backends v4l2 usan `UVCIOC_CTRL_QUERY` para las XU y `V4L2_CID_POWER_LINE_FREQUENCY`
+(0x00980918, mismos valores que UVC) para el anti-parpadeo. Verificado en hardware el 2026-11-13 (las escrituras
+llegan: la mascara cambia 0x0230<->0x0234; la lectura del modo devuelve siempre 0xff en v4l2).
+`--keep-stream` (v4l2): mmap + `VIDIOC_STREAMON` en una goroutine para que la camara tenga un stream mientras se mueve; verificado en hardware Linux el 2026-11-13.
 
 ## Herramientas (`tools/`)
 
