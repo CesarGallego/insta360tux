@@ -166,15 +166,33 @@ func run(args []string, stdout, stderr io.Writer, tty bool) int {
 	case "help", "help-agent", "--help-all":
 		a.finish()
 		if cmd == "help" {
+			skip := false
 			for _, s := range rest {
-				if !strings.HasPrefix(s, "-") {
+				if skip {
+					skip = false
+					continue
+				}
+				if strings.HasPrefix(s, "-") {
+					// global flags with a separate value argument
+					switch strings.TrimLeft(s, "-") {
+					case "backend", "device", "timeout", "resolution", "fps", "stream-hold":
+						skip = true
+					}
+					continue
+				}
+				{
 					if d := findDoc(s); d != nil {
 						fmt.Fprint(stdout, d.text())
 						return exitOK
 					}
+					if t := findTopic(s); t != nil {
+						fmt.Fprint(stdout, t.Text)
+						return exitOK
+					}
+					return a.fail(exitUsage, "usage", fmt.Errorf("unknown help topic %q (try 'insta360 help')", s))
 				}
 			}
-			fmt.Fprint(stdout, overview)
+			fmt.Fprint(stdout, helpIndex())
 		} else {
 			fmt.Fprint(stdout, agentReference())
 		}
@@ -839,7 +857,7 @@ func (a *app) startStream(cam *camera.Camera) (func(), int) {
 	if err != nil {
 		return nil, a.failErr(err)
 	}
-	fmt.Fprintf(a.err, "stream: %dx%d @%d fps open (unverified on real hardware), held %s after the command\n", w, h, fps, a.g.hold)
+	fmt.Fprintf(a.err, "stream: %dx%d @%d fps open, held %s after the command\n", w, h, fps, a.g.hold)
 	return func() {
 		if !a.g.dryRun {
 			time.Sleep(a.g.hold)

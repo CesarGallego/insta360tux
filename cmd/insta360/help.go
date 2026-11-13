@@ -33,7 +33,7 @@ const overview = `insta360 - control the pan/tilt/zoom gimbal of an Insta360 Lin
 USAGE
   insta360 [global flags] <command> [command flags]
 
-COMMANDS
+COMMANDS (details: 'insta360 <command> --help')
   list        list attached cameras
   info        show device identity, backend and valid ranges
   get         read the current pan/tilt/zoom
@@ -46,35 +46,56 @@ COMMANDS
   gestures    read or set the gesture controls (--enable --tracking --zoom --whiteboard)
   tracking-speed  read or set the AI tracking speed (quick|normal|slow)
   flicker     read or set the anti-flicker power line frequency (50|60)
+  help        'help <command|topic>' shows one command or topic; 'help' alone lists them
   help-agent  print the complete reference as one Markdown document
   version     print version
 
-GLOBAL FLAGS (accepted before or after the command)
+TOPICS ('insta360 help <topic>')
+  flags       global flags (--json, --device, --backend, --dry-run, --clamp, --keep-stream, ...)
+  units       pan/tilt/zoom/focus/roll units and ranges
+  caveats     READ BEFORE AUTOMATING: stream requirement, get = commanded value, modes, features
+  exit-codes  process exit codes
+  output      stdout/stderr format and the error object
+
+ESSENTIALS
+  - Output is JSON when stdout is not a terminal. Branch on the exit code or error "code", never on "message".
+  - The gimbal needs an active video stream to move (or use --keep-stream on Linux).
+  - 'get' returns the last COMMANDED value, not the measured position.
+  - Flags may come before or after the command. Use --dry-run to validate without writing.
+
+Run 'insta360 help caveats' before automating, or 'insta360 help-agent' for everything in one document.
+`
+
+const topicFlags = `GLOBAL FLAGS (accepted before or after the command)
   --json[=bool]      JSON output on stdout. Default: true when stdout is not a terminal.
                      Use --json=false to force human-readable text.
   --device STR       select camera: "VID:PID" hex (2e1a:4c01), "BUS.ADDR" decimal
-                     (see 'list'), or a serial number. Default: first Insta360 Link.
-  --backend NAME     libusb | v4l2 | fake. Default: auto ($INSTA360_BACKEND overrides auto).
+                     (see 'list'), a serial number, or (v4l2) a path like /dev/video0.
+                     Default: first Insta360 Link.
+  --backend NAME     libusb | v4l2 | fake. Default: auto, by priority (v4l2 100, libusb 50);
+                     $INSTA360_BACKEND overrides auto. On Linux prefer v4l2 (no udev rule or driver unbinding).
   --dry-run          validate and report what would be sent, but write nothing to the camera.
   --timeout DUR      per-transfer timeout, Go duration (default 2s).
   --clamp            clamp out-of-range values instead of failing (exit 4).
-  --keep-stream      Linux v4l2 backend only, UNVERIFIED on real hardware: hold a capture stream open
-                     while the command runs (the camera only moves with a stream), then --stream-hold
-                     DUR (default 3s) more, then release. Options: --resolution WxH (default 1920x1080), --fps N (30).
+  --keep-stream      Linux v4l2 backend only (verified on hardware): hold a capture stream open while the
+                     command runs (the gimbal needs a stream to move), then --stream-hold DUR (default 3s)
+                     more, then release. Options: --resolution WxH (default 1920x1080), --fps N (30).
                      Other backends: exit 6.
+`
 
-UNITS
+const topicUnits = `UNITS
   pan, tilt  degrees (float). Wire format is arc-seconds (3600 = 1 deg); resolution 1/3600 deg.
   zoom       raw integer 100..400 where 100 = 1.0x and 400 = 4.0x.
-  focus      raw integer 0..100.   roll  raw integer -100..100.
+  focus      raw integer 0..100.   roll  raw integer -100..100 (not available on the v4l2 backend).
   Pan range -145..+145, tilt range -90..+100 (check 'info' for the actual device values).
+  Positive tilt looks up; positive pan shifts the scene left in the image.
+`
 
-IMPORTANT CAVEATS (read before automating)
-  1. The gimbal has only been observed to MOVE while a video stream is active (another app,
-     e.g. a camera viewer or video call, is using the camera). Without a stream the commands
-     succeed but the gimbal may stay still. This is a hypothesis, not proven. With a stream
-     active, absolute pan/tilt/zoom moves were verified on real hardware (camera frames
-     changed accordingly). Positive tilt looks up; positive pan shifts the scene left in the image.
+const topicCaveats = `IMPORTANT CAVEATS (read before automating)
+  1. The gimbal moves only while a video stream is active (another app, a camera viewer or video call,
+     or --keep-stream on Linux). Without a stream the commands succeed and the pose is stored; the camera
+     applies it when a stream starts (verified on Linux and macOS). Absolute pan/tilt/zoom moves were
+     verified on real hardware (camera frames changed accordingly).
   2. 'get' returns the LAST COMMANDED value held by the camera, NOT the measured position.
      A successful 'set' followed by 'get' proves the command was accepted, not that the
      gimbal arrived. Do not use 'get' as feedback that movement completed.
@@ -82,28 +103,33 @@ IMPORTANT CAVEATS (read before automating)
   4. Ranges are queried from the camera (UVC GET_MIN/GET_MAX) by the libusb and v4l2 backends;
      'info' reports "ranges_source":"device" (or "default" plus "ranges_warning" if the query
      failed). Real Insta360 Link values: pan -145..145, tilt -90..100, zoom 100..400,
-     focus 0..100, roll -100..100. The pan/tilt step reported by the camera is 1 degree.
+     focus 0..100, roll -100..100 (roll absent on v4l2). The pan/tilt step is 1 degree.
   5. Native UVC PANTILT_RELATIVE (and zoom/roll relative) are NOT supported by the camera
      (verified: requests stall); 'move' is emulated client-side.
   6. Manual focus is rejected by the camera while autofocus is on. 'set --focus' therefore
-     switches autofocus off first (libusb backend); 'set --autofocus=true' turns it back on.
-     Roll is a signed value; negative values are accepted and read back correctly.
-
+     switches autofocus off first (libusb and v4l2 backends); 'set --autofocus=true' turns it back on.
+     Roll is a signed value; negative values are accepted and read back correctly (libusb).
   7. Modes: besides normal, the camera has special modes that move the gimbal ON THEIR OWN
      (tracking, whiteboard, overhead, desk). While one is active, 'set'/'move' of pan/tilt is
      overridden or ignored. 'set --normal' switches to mode normal first. See 'insta360 mode --help'.
-
+     KNOWN ISSUE: on Linux (v4l2) reading the mode currently returns "unknown(0xff)", which also
+     triggers a spurious mode warning on 'set'; writing a mode is accepted but its physical effect
+     has not been verified on Linux.
   8. Features, gestures, tracking speed and flicker are plain configuration writes: they need no
      stream. Their PHYSICAL effects (vertical-lock moves the gimbal to 90 degrees, auto-tracking and
      onetouch-tracking make the camera move by itself) need an active stream. Features are bits of one
      mask that is always read-modify-written, so unknown bits are preserved. There is NO command for
      privacy/sleep (the camera enters privacy by itself when no stream is open and wakes when one starts),
      nor for resolution/fps (not a camera setting) nor for presets (they live in the official app).
+  9. Permissions: v4l2 needs access to /dev/video* (group 'video'); libusb needs a udev rule and on Linux
+     must detach uvcvideo (not verified). Exit 7 can also appear for a busy device.
+`
 
-EXIT CODES
+const topicExitCodes = `EXIT CODES
 ` + exitCodesTable + `
+`
 
-OUTPUT
+const topicOutput = `OUTPUT
   Data goes to stdout (JSON object when --json). Errors go to stderr; with --json they are
   a JSON object on one line, for example (exit code 4):
     {"error":{"code":"out_of_range","message":"pan 500 out of range [-145, 145]","exit_code":4}}
@@ -112,9 +138,43 @@ OUTPUT
   or on "code", never on "message".
   Flags and positionals may appear in any order: 'insta360 zoom 200 --json' is valid.
   A '--' argument ends flag parsing; everything after it is positional.
-
-Run 'insta360 <command> --help' for details, or 'insta360 help-agent' for the full reference.
 `
+
+// topic is a cross-cutting help page, shown by 'insta360 help <name>'.
+type topic struct{ Name, Summary, Text string }
+
+var topics = []topic{
+	{"flags", "global flags", topicFlags},
+	{"units", "units and ranges", topicUnits},
+	{"caveats", "read before automating", topicCaveats},
+	{"exit-codes", "process exit codes", topicExitCodes},
+	{"output", "stdout/stderr and error format", topicOutput},
+}
+
+func findTopic(name string) *topic {
+	name = strings.ToLower(name)
+	for i := range topics {
+		if topics[i].Name == name || strings.ReplaceAll(topics[i].Name, "-", "") == strings.ReplaceAll(name, "-", "") {
+			return &topics[i]
+		}
+	}
+	return nil
+}
+
+// helpIndex lists every command and topic ('insta360 help').
+func helpIndex() string {
+	var b strings.Builder
+	b.WriteString("Commands ('insta360 help <command>'):\n")
+	for _, d := range docs {
+		fmt.Fprintf(&b, "  %-15s %s\n", d.Name, d.Summary)
+	}
+	b.WriteString("\nTopics ('insta360 help <topic>'):\n")
+	for _, t := range topics {
+		fmt.Fprintf(&b, "  %-15s %s\n", t.Name, t.Summary)
+	}
+	b.WriteString("\nOverview: 'insta360 --help'. Everything in one Markdown document: 'insta360 help-agent'.\n")
+	return b.String()
+}
 
 // cmdDoc is the per-command reference, used by '<cmd> --help' and help-agent.
 type cmdDoc struct {
@@ -180,7 +240,7 @@ At least one of these is required (else exit 2). Values outside the range exit 4
 		Summary: "Read or set the camera mode. No argument = print the current mode. Modes: normal (default behaviour), tracking (AI face tracking: the camera MOVES BY ITSELF and fights any pan/tilt you set), whiteboard (zooms out looking for QR markers on the board; cancels itself back to normal after a few seconds if it finds none), overhead (tilts straight down, -90 deg), desk (desk view, frames the hands, tilt about -45 deg). Always finish with 'mode normal' to hand control back.",
 		Usage:   "insta360 mode [normal|tracking|whiteboard|overhead|desk]",
 		Flags:   "NAME   mode to set (case-insensitive). Unknown name: exit 2. Backends without extension-unit access (v4l2 if UVCIOC_CTRL_QUERY fails): exit 6.",
-		Output: `Read:  {"mode":"normal"}   (an unseen firmware value is reported as "unknown(0x02)")
+		Output: `Read:  {"mode":"normal"}   (an unseen firmware value is reported as "unknown(0x02)"; known issue: v4l2 on Linux currently always reads "unknown(0xff)")
   Write: {"mode":{"requested":"overhead","applied":"overhead","clamped":false,"dry_run":false}}
   Nothing is read back after a write; poll 'insta360 mode' (the camera needs ~1 s to settle).`,
 		Examples: "insta360 mode\ninsta360 mode overhead\ninsta360 mode normal\ninsta360 --dry-run mode tracking",
@@ -296,6 +356,9 @@ func agentReference() string {
 	var b strings.Builder
 	b.WriteString("# insta360 CLI reference\n\n")
 	b.WriteString("```text\n" + overview + "```\n\n")
+	for _, t := range topics {
+		b.WriteString("## Topic: " + t.Name + "\n\n```text\n" + t.Text + "```\n\n")
+	}
 	b.WriteString("## Typical agent workflow\n\n")
 	b.WriteString("1. `insta360 list` - confirm the camera is attached (exit 3 from other commands means it is not).\n")
 	b.WriteString("2. Make sure a video stream is active in another app, otherwise the gimbal may not move.\n")

@@ -136,10 +136,27 @@ func run2(t *testing.T, args ...string) (int, string, string) {
 func TestHelpCoversCommandsAndExitCodes(t *testing.T) {
 	_, top, _ := do(t, "--help")
 	_, agent, _ := do(t, "help-agent")
-	for _, s := range []string{"video stream", "COMMANDED", "GET_MIN", "any order", `"error"`} {
+	for _, s := range []string{"video stream", "COMMANDED", "TOPICS", "help caveats"} {
 		if !strings.Contains(top, s) {
 			t.Errorf("--help missing %q", s)
 		}
+	}
+	for _, tp := range topics {
+		_, h, _ := do(t, "help", tp.Name)
+		if h != tp.Text {
+			t.Errorf("help %s mismatch: %q", tp.Name, h)
+		}
+		if !strings.Contains(agent, tp.Text) {
+			t.Errorf("help-agent missing topic %s", tp.Name)
+		}
+	}
+	for _, s := range []string{"GET_MIN", "any order", `"error"`} {
+		if !strings.Contains(agent, s) {
+			t.Errorf("help-agent missing %q", s)
+		}
+	}
+	if c, _, e := do(t, "help", "nope"); c != 2 || !strings.Contains(e, "unknown help topic") {
+		t.Errorf("help nope: %d %q", c, e)
 	}
 	for _, d := range docs {
 		if !strings.Contains(top, "  "+d.Name) {
@@ -159,7 +176,7 @@ func TestHelpCoversCommandsAndExitCodes(t *testing.T) {
 		}
 	}
 	for code := 0; code <= 7; code++ {
-		if !strings.Contains(top, fmt.Sprintf("| %d |", code)) || !strings.Contains(agent, fmt.Sprintf("| %d |", code)) {
+		if !strings.Contains(topicExitCodes, fmt.Sprintf("| %d |", code)) || !strings.Contains(agent, fmt.Sprintf("| %d |", code)) {
 			t.Errorf("exit code %d not documented", code)
 		}
 	}
