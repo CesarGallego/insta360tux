@@ -146,3 +146,7 @@ Select a device with `/dev/videoN`, `2e1a:4c01`, `BUS.ADDR` or the serial; force
 go vet ./... && go test ./...
 ```
 `tools/` has the original C probes (`dump_desc`, `probe_uvc`, `ptz_test`, `ptz_diag`).
+
+## License
+
+[MIT](LICENSE).
